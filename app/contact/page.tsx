@@ -1,2 +1,32 @@
 import PolicyPage from "@/components/PolicyPage";
-export default function Page(){return <PolicyPage title={"Contact Us"} updated="October 11, 2026"><><p>For help with InvoiceAI, billing questions, privacy requests or feedback, please contact the service operator using the support email or contact details published on the website.</p><p><strong>Important:</strong> Before publishing this page for payment-provider review, add a real monitored support email address and, where appropriate, your business name and address. Do not leave contact details blank if the payment provider requires them.</p></></PolicyPage>}
+
+export default function Page() {
+  return (
+    <PolicyPage title="Contact Us" updated="October 11, 2026">
+      <>
+        <p>
+          If you need help with InvoiceAI, have questions about billing, or
+          want to submit a privacy request or feedback, please contact us
+          using the email address below.
+        </p>
+
+        <p>
+          <strong>Support Email:</strong>{" "}
+          <a href="mailto:ksarukh886@gmail.com">
+            ksarukh886@gmail.com
+          </a>
+        </p>
+
+        <p>
+          We will review your message and respond as soon as reasonably
+          possible.
+        </p>
+
+        <p>
+          InvoiceAI provides tools to help businesses create invoices,
+          quotes, and payment reminders.
+        </p>
+      </>
+    </PolicyPage>
+  );
+}

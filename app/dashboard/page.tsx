@@ -21,7 +21,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [view, setView] = useState<"Dashboard" | "Create invoice" | "Invoices" | "Customers">("Dashboard");
+  const [view, setView] = useState<"Dashboard" | "Create invoice" | "Invoices" | "Customers" | "Pricing">("Dashboard");
 
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + Math.max(0, Number(item.qty) || 0) * Math.max(0, Number(item.price) || 0), 0), [items]);
   const total = Math.max(0, subtotal - Math.max(0, discount)) * (1 + Math.max(0, tax) / 100);
@@ -42,6 +42,9 @@ export default function Dashboard() {
 
   async function save() {
     setMessage("");
+    const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+    const usedThisMonth = docs.filter(d => new Date(d.created_at) >= monthStart).length;
+    if (usedThisMonth >= 10) { setView("Pricing"); setMessage("Free plan ki 10 invoices/month limit poori ho gayi. Plans dekhne ke liye Pricing khola gaya hai."); return; }
     setBusy(true);
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -96,10 +99,10 @@ export default function Dashboard() {
     <header><b className="brand">Invoice<span>AI</span></b><button className="linkbtn" onClick={logout}>Log out</button></header>
     <div className="dashgrid">
       <aside className="sidecard no-print"><h3>Workspace</h3>
-        {(["Dashboard", "Create invoice", "Invoices", "Customers"] as const).map(item =>
-          <button key={item} className={`navitem ${view === item ? "active" : ""}`} onClick={() => { setView(item); setMessage(""); }}>{item === "Dashboard" ? "▦ " : item === "Create invoice" ? "＋ " : item === "Invoices" ? "▤ " : "♙ "}{item}</button>
+        {(["Dashboard", "Create invoice", "Invoices", "Customers", "Pricing"] as const).map(item =>
+          <button key={item} className={`navitem ${view === item ? "active" : ""}`} onClick={() => { setView(item); setMessage(""); }}>{item === "Dashboard" ? "▦ " : item === "Create invoice" ? "＋ " : item === "Invoices" ? "▤ " : item === "Customers" ? "♙ " : "＄ "}{item}</button>
         )}
-        <hr/><small>FREE PLAN</small><p>{docs.length} documents saved</p>
+        <hr/><small>FREE PLAN</small><p>{docs.filter(d => new Date(d.created_at) >= new Date(new Date().getFullYear(), new Date().getMonth(), 1)).length}/10 invoices this month</p><button className="lightbtn" onClick={() => setView("Pricing")}>View plans</button>
       </aside>
       <section>
         {message && <p className="notice" role="status">{message}</p>}
@@ -123,6 +126,7 @@ export default function Dashboard() {
         {view === "Invoices" && <><div className="welcome"><div><h1>Invoices & quotes</h1><p className="muted">Manage saved documents and payment status.</p></div><button className="btn" onClick={() => setView("Create invoice")}>＋ Create new</button></div>
           <div className="panel">{docs.length === 0 ? <p>No saved documents yet. Create your first invoice.</p> : <div className="tablewrap"><table><thead><tr><th>Number</th><th>Customer</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead><tbody>{docs.map(doc => <tr key={doc.id}><td>{doc.number}<br/><small>{doc.type}</small></td><td>{doc.customer}<br/><small>{doc.email}</small></td><td>${Number(doc.total).toFixed(2)}</td><td><select aria-label={`Status for ${doc.number}`} value={doc.status} onChange={e => changeStatus(doc, e.target.value)}><option>Pending</option><option>Paid</option><option>Overdue</option></select></td><td><button className="lightbtn" onClick={() => { setCustomer(doc.customer); setEmail(doc.email); setType(doc.type); setItems(doc.items || []); setTax(Number(doc.tax)); setDiscount(Number(doc.discount)); setNotes(doc.notes || ""); setView("Create invoice"); }}>Edit copy</button> <button className="lightbtn" onClick={() => sendWhatsApp(doc)}>WhatsApp</button> <button className="lightbtn" onClick={() => deleteDoc(doc)}>Delete</button></td></tr>)}</tbody></table></div>}</div>
         </>}
+        {view === "Pricing" && <><div className="welcome"><div><h1>Plans & Pricing</h1><p className="muted">Choose the plan that fits your business.</p></div></div><div className="pricing-grid"><div className="panel pricing-card"><p className="muted">START HERE</p><h2>Free</h2><h1>₹0 <small>/ month</small></h1><p>For small businesses getting started.</p><ul><li>10 invoices per month</li><li>PDF / print download</li><li>Customer list from saved invoices</li><li>Manual WhatsApp reminders</li><li>Pending and Paid status</li></ul><button className="lightbtn" disabled>Current plan</button></div><div className="panel pricing-card featured"><p className="muted">FOR GROWING BUSINESSES</p><h2>Pro</h2><h1>₹199 <small>/ month</small></h1><p>More room for your business.</p><ul><li>Higher invoice allowance</li><li>All Free features</li><li>Business branding options</li><li>Priority feature updates</li></ul><button className="btn" onClick={() => setMessage("Pro subscription payments are not enabled yet. No payment has been taken.")}>Upgrade to Pro</button><p className="muted pricing-note">Payments are not activated yet. Upgrade will not charge you.</p></div></div></>}
         {view === "Customers" && <><div className="welcome"><div><h1>Customers</h1><p className="muted">Customers are collected from your saved invoices and quotes.</p></div><button className="btn" onClick={() => setView("Create invoice")}>＋ Add customer via invoice</button></div>
           <div className="panel">{customers.length === 0 ? <p>No customers yet. Save an invoice with a customer name to see them here.</p> : <div className="tablewrap"><table><thead><tr><th>Name</th><th>Email</th><th>Documents</th><th>Action</th></tr></thead><tbody>{customers.map(person => <tr key={person.name.toLowerCase()}><td>{person.name}</td><td>{person.email || "—"}</td><td>{docs.filter(d => d.customer?.toLowerCase() === person.name.toLowerCase()).length}</td><td><button className="lightbtn" onClick={() => { setCustomer(person.name); setEmail(person.email); setView("Create invoice"); }}>Create invoice</button></td></tr>)}</tbody></table></div>}</div>
         </>}

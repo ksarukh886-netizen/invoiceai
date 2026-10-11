@@ -18,3 +18,5 @@ button:disabled { opacity:.6; cursor:wait; }
   #invoice-preview { position:absolute; left:0; top:0; width:100%; box-shadow:none !important; border:0 !important; }
   .no-print { display:none !important; }
 }
+
+.pricing-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:20px}.pricing-card{padding:24px}.pricing-card h1{font-size:34px;margin:12px 0}.pricing-card h1 small{font-size:14px;font-weight:500;color:#64748b}.pricing-card ul{padding-left:20px;line-height:2}.pricing-card.featured{border:1px solid #8b9cf7}.pricing-note{font-size:12px;margin-top:12px}@media(max-width:700px){.pricing-grid{grid-template-columns:1fr}}

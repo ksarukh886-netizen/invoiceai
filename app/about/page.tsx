@@ -1,0 +1,2 @@
+import PolicyPage from "@/components/PolicyPage";
+export default function Page(){return <PolicyPage title={"About InvoiceAI"} updated="October 11, 2026"><><p>InvoiceAI is a web-based invoicing tool designed to help freelancers and small businesses prepare invoices and quotations, track payment status, and create customer payment reminders.</p><p>Our goal is to make routine invoicing simpler and faster. Users should review all generated documents for accuracy before sharing them with customers.</p></></PolicyPage>}

@@ -26,3 +26,7 @@ Then set the Supabase Auth Site URL / redirect URLs to your production domain.
 ## Important
 The app is intentionally ready for real credentials but does not contain any credentials.
 Payment subscriptions (Stripe/Razorpay), custom domain and WhatsApp Business API need the owner's accounts/keys before production activation.
+
+
+## Policy pages
+This project includes draft About, Contact, Terms, Privacy, Refund & Cancellation, and Shipping pages. Before going live, replace the Contact page guidance with your real support email/business details and review all policy text so it accurately reflects your actual data handling, billing and refund practices.

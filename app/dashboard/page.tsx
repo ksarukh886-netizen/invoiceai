@@ -84,26 +84,121 @@ export default function Dashboard() {
     [docs]
   );
 
+ 
   async function upgradeToPro() {
     setMessage("");
 
     try {
+      // Step 1: Get the current Supabase login token
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.access_token) {
+        setMessage("Login session nahi mili. Dobara login karein.");
+        router.push("/login");
+        return;
+      }
+
+      // Step 2: Load Razorpay checkout
       if (!window.Razorpay) {
         await new Promise<void>((resolve, reject) => {
           const script = document.createElement("script");
-          script.src =
-            "https://checkout.razorpay.com/v1/checkout.js";
+          script.src = "https://checkout.razorpay.com/v1/checkout.js";
           script.async = true;
           script.onload = () => resolve();
           script.onerror = () =>
-            reject(
-              new Error(
-                "Razorpay load nahi hua. Internet connection check karein."
-              )
-            );
+            reject(new Error("Razorpay load nahi hua. Internet check karein."));
           document.body.appendChild(script);
         });
       }
+
+      // Step 3: Send the token to the subscription API
+      const response = await fetch("/api/subscription/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ plan: "monthly" }),
+      });
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(result.error || "Subscription create nahi hui.");
+      }
+
+      if (!result.keyId || !result.subscriptionId) {
+        throw new Error("Razorpay subscription details nahi mili.");
+      }
+
+      // Step 4: Open Razorpay checkout
+      const checkout = new window.Razorpay({
+        key: result.keyId,
+        subscription_id: result.subscriptionId,
+        name: "InvoiceAI",
+        description: "Pro Monthly Subscription",
+
+        handler: async (payment: any) => {
+          try {
+            const verifyResponse = await fetch(
+              "/api/subscription/verify",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${session.access_token}`,
+                },
+                body: JSON.stringify({
+                  razorpay_payment_id: payment.razorpay_payment_id,
+                  razorpay_subscription_id:
+                    payment.razorpay_subscription_id,
+                  razorpay_signature: payment.razorpay_signature,
+                }),
+              }
+            );
+
+            const verified = await verifyResponse.json().catch(() => ({}));
+
+            if (!verifyResponse.ok) {
+              setMessage(
+                verified.error ||
+                  "Payment verification nahi ho payi. Dobara payment na karein; pehle status check karein."
+              );
+              return;
+            }
+
+            setMessage("Payment verification successful. Page refresh ho raha hai.");
+            window.location.reload();
+          } catch {
+            setMessage(
+              "Verification server se connect nahi ho payi. Payment status check karein."
+            );
+          }
+        },
+
+        modal: {
+          ondismiss: () => {
+            setMessage(
+              "Checkout band ho gaya. Agar payment ki hai, status check hone tak dobara payment na karein."
+            );
+          },
+        },
+
+        theme: { color: "#6C3BEE" },
+      });
+
+      checkout.open();
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Payment shuru nahi ho payi."
+      );
+    }
+  }
 
       const response = await fetch("/api/subscription/create", {
         method: "POST",

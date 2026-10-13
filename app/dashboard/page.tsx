@@ -1,3 +1,4 @@
+```tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -44,7 +45,9 @@ export default function Dashboard() {
   ]);
   const [tax, setTax] = useState(0);
   const [discount, setDiscount] = useState(0);
-  const [notes, setNotes] = useState("Thank you for your business!");
+  const [notes, setNotes] = useState(
+    "Thank you for your business!"
+  );
   const [ai, setAi] = useState("");
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -77,18 +80,45 @@ export default function Dashboard() {
             .filter((d) => d.customer?.trim())
             .map((d) => [
               d.customer.trim().toLowerCase(),
-              { name: d.customer.trim(), email: d.email || "" },
+              {
+                name: d.customer.trim(),
+                email: d.email || "",
+              },
             ])
         ).values()
       ),
     [docs]
   );
-async function loadDocs()
+
+  // Load documents belonging to the logged-in user.
+  async function loadDocs() {
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      router.push("/login");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("documents")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setMessage("Documents load nahi hue: " + error.message);
+    } else {
+      setDocs((data || []) as Doc[]);
+    }
+  }
+
+  // Razorpay Pro subscription checkout.
   async function upgradeToPro() {
     setMessage("");
 
     try {
-      // Step 1: Get the current Supabase login token
       const {
         data: { session },
         error: sessionError,
@@ -100,40 +130,56 @@ async function loadDocs()
         return;
       }
 
-      // Step 2: Load Razorpay checkout
+      // Load Razorpay checkout script if it is not loaded.
       if (!window.Razorpay) {
         await new Promise<void>((resolve, reject) => {
           const script = document.createElement("script");
-          script.src = "https://checkout.razorpay.com/v1/checkout.js";
+
+          script.src =
+            "https://checkout.razorpay.com/v1/checkout.js";
           script.async = true;
+
           script.onload = () => resolve();
+
           script.onerror = () =>
-            reject(new Error("Razorpay load nahi hua. Internet check karein."));
+            reject(
+              new Error(
+                "Razorpay load nahi hua. Internet check karein."
+              )
+            );
+
           document.body.appendChild(script);
         });
       }
 
-      // Step 3: Send the token to the subscription API
-      const response = await fetch("/api/subscription/create", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ plan: "monthly" }),
-      });
+      // Create the subscription on the server.
+      const response = await fetch(
+        "/api/subscription/create",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ plan: "monthly" }),
+        }
+      );
 
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(result.error || "Subscription create nahi hui.");
+        throw new Error(
+          result.error || "Subscription create nahi hui."
+        );
       }
 
       if (!result.keyId || !result.subscriptionId) {
-        throw new Error("Razorpay subscription details nahi mili.");
+        throw new Error(
+          "Razorpay subscription details nahi mili."
+        );
       }
 
-      // Step 4: Open Razorpay checkout
+      // Open Razorpay checkout.
       const checkout = new window.Razorpay({
         key: result.keyId,
         subscription_id: result.subscriptionId,
@@ -151,25 +197,32 @@ async function loadDocs()
                   Authorization: `Bearer ${session.access_token}`,
                 },
                 body: JSON.stringify({
-                  razorpay_payment_id: payment.razorpay_payment_id,
+                  razorpay_payment_id:
+                    payment.razorpay_payment_id,
                   razorpay_subscription_id:
                     payment.razorpay_subscription_id,
-                  razorpay_signature: payment.razorpay_signature,
+                  razorpay_signature:
+                    payment.razorpay_signature,
                 }),
               }
             );
 
-            const verified = await verifyResponse.json().catch(() => ({}));
+            const verified = await verifyResponse
+              .json()
+              .catch(() => ({}));
 
             if (!verifyResponse.ok) {
               setMessage(
                 verified.error ||
-                  "Payment verification nahi ho payi. Dobara payment na karein; pehle status check karein."
+                  "Payment verification nahi ho payi. Payment status check karein."
               );
               return;
             }
 
-            setMessage("Payment verification successful. Page refresh ho raha hai.");
+            setMessage(
+              "Payment verification successful. Page refresh ho raha hai."
+            );
+
             window.location.reload();
           } catch {
             setMessage(
@@ -196,116 +249,6 @@ async function loadDocs()
           ? error.message
           : "Payment shuru nahi ho payi."
       );
-    }
-  }
-
-      const response = await fetch("/api/subscription/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planType: "monthly" }),
-      });
-
-      const result = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(
-          result.error || "Subscription create nahi hui."
-        );
-      }
-
-      if (!result.keyId || !result.subscriptionId) {
-        throw new Error(
-          "Subscription API se zaroori details nahi mili. Server API check karni hogi."
-        );
-      }
-
-      const checkout = new window.Razorpay({
-        key: result.keyId,
-        subscription_id: result.subscriptionId,
-        name: "InvoiceAI",
-        description: "Pro Monthly Subscription",
-
-        handler: async (payment: any) => {
-          try {
-            const verifyResponse = await fetch(
-              "/api/subscription/verify",
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  razorpay_payment_id:
-                    payment.razorpay_payment_id,
-                  razorpay_subscription_id:
-                    payment.razorpay_subscription_id,
-                  razorpay_signature:
-                    payment.razorpay_signature,
-                }),
-              }
-            );
-
-            const verified = await verifyResponse
-              .json()
-              .catch(() => ({}));
-
-            if (!verifyResponse.ok) {
-              setMessage(
-                verified.error ||
-                  "Payment verification nahi ho payi. Dobara payment karne se pehle status check karein."
-              );
-              return;
-            }
-
-            setMessage(
-              "Payment details verify ho gayi hain. Subscription status refresh ho raha hai."
-            );
-            window.location.reload();
-          } catch {
-            setMessage(
-              "Verification server se connect nahi ho payi. Dobara payment karne se pehle status check karein."
-            );
-          }
-        },
-
-        modal: {
-          ondismiss: () =>
-            setMessage(
-              "Checkout band ho gaya. Agar payment ki hai, status check hone tak dobara payment na karein."
-            ),
-        },
-
-        theme: { color: "#6C3BEE" },
-      });
-
-      checkout.open();
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Payment shuru nahi ho payi."
-      );
-    }
-  }
-
-  async function loadDocs() {
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      router.push("/login");
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from("documents")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      setMessage("Documents load nahi hue: " + error.message);
-    } else {
-      setDocs((data || []) as Doc[]);
     }
   }
 
@@ -380,6 +323,7 @@ async function loadDocs()
       }
 
       const prefix = type === "Invoice" ? "INV" : "QUO";
+
       const number = `${prefix}-${String(
         docs.length + 1
       ).padStart(3, "0")}`;
@@ -428,8 +372,15 @@ async function loadDocs()
     try {
       const response = await fetch("/api/ai", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customer, type, items, total }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          customer,
+          type,
+          items,
+          total,
+        }),
       });
 
       const result = await response.json();
@@ -514,6 +465,7 @@ async function loadDocs()
         <b className="brand">
           Invoice<span>AI</span>
         </b>
+
         <button className="linkbtn" onClick={logout}>
           Log out
         </button>
@@ -534,7 +486,9 @@ async function loadDocs()
           ).map((item) => (
             <button
               key={item}
-              className={`navitem ${view === item ? "active" : ""}`}
+              className={`navitem ${
+                view === item ? "active" : ""
+              }`}
               onClick={() => {
                 setView(item);
                 setMessage("");
@@ -554,7 +508,9 @@ async function loadDocs()
           ))}
 
           <hr />
+
           <small>FREE PLAN</small>
+
           <p>
             {
               docs.filter(
@@ -594,6 +550,7 @@ async function loadDocs()
                     Create, save and follow up with customers.
                   </p>
                 </div>
+
                 <button
                   className="btn"
                   onClick={() => setView("Create invoice")}
@@ -604,20 +561,26 @@ async function loadDocs()
 
               <div className="panel">
                 <h3>Quick overview</h3>
+
                 <div className="two">
                   <p>
                     Total documents
                     <br />
                     <b>{docs.length}</b>
                   </p>
+
                   <p>
                     Pending payments
                     <br />
                     <b>
-                      {docs.filter((d) => d.status !== "Paid").length}
+                      {
+                        docs.filter((d) => d.status !== "Paid")
+                          .length
+                      }
                     </b>
                   </p>
                 </div>
+
                 <button
                   className="btn"
                   onClick={() => setView("Invoices")}
@@ -637,6 +600,7 @@ async function loadDocs()
                     Enter details; preview updates automatically.
                   </p>
                 </div>
+
                 <button
                   className="btn"
                   onClick={save}
@@ -664,7 +628,9 @@ async function loadDocs()
                       Customer
                       <input
                         value={customer}
-                        onChange={(e) => setCustomer(e.target.value)}
+                        onChange={(e) =>
+                          setCustomer(e.target.value)
+                        }
                         placeholder="John Smith"
                       />
                     </label>
@@ -688,34 +654,51 @@ async function loadDocs()
                         aria-label="Description"
                         value={item.description}
                         onChange={(e) =>
-                          updateItem(index, "description", e.target.value)
+                          updateItem(
+                            index,
+                            "description",
+                            e.target.value
+                          )
                         }
                         placeholder="Item description"
                       />
+
                       <input
                         aria-label="Quantity"
                         type="number"
                         min="0"
                         value={item.qty}
                         onChange={(e) =>
-                          updateItem(index, "qty", e.target.value)
+                          updateItem(
+                            index,
+                            "qty",
+                            e.target.value
+                          )
                         }
                       />
+
                       <input
                         aria-label="Price"
                         type="number"
                         min="0"
                         value={item.price}
                         onChange={(e) =>
-                          updateItem(index, "price", e.target.value)
+                          updateItem(
+                            index,
+                            "price",
+                            e.target.value
+                          )
                         }
                       />
+
                       <button
                         type="button"
                         onClick={() =>
                           setItems((current) =>
                             current.length > 1
-                              ? current.filter((_, i) => i !== index)
+                              ? current.filter(
+                                  (_, i) => i !== index
+                                )
                               : current
                           )
                         }
@@ -731,7 +714,11 @@ async function loadDocs()
                     onClick={() =>
                       setItems((current) => [
                         ...current,
-                        { description: "", qty: 1, price: 0 },
+                        {
+                          description: "",
+                          qty: 1,
+                          price: 0,
+                        },
                       ])
                     }
                   >
@@ -746,7 +733,12 @@ async function loadDocs()
                         min="0"
                         value={tax}
                         onChange={(e) =>
-                          setTax(Math.max(0, Number(e.target.value) || 0))
+                          setTax(
+                            Math.max(
+                              0,
+                              Number(e.target.value) || 0
+                            )
+                          )
                         }
                       />
                     </label>
@@ -759,7 +751,10 @@ async function loadDocs()
                         value={discount}
                         onChange={(e) =>
                           setDiscount(
-                            Math.max(0, Number(e.target.value) || 0)
+                            Math.max(
+                              0,
+                              Number(e.target.value) || 0
+                            )
                           )
                         }
                       />
@@ -779,18 +774,24 @@ async function loadDocs()
                     onClick={generateAI}
                     disabled={loading}
                   >
-                    {loading ? "Generating…" : "✨ Generate AI reminder"}
+                    {loading
+                      ? "Generating…"
+                      : "✨ Generate AI reminder"}
                   </button>
 
                   {ai && (
                     <div className="ai">
                       <p>{ai}</p>
+
                       <button
                         className="lightbtn"
-                        onClick={() => navigator.clipboard.writeText(ai)}
+                        onClick={() =>
+                          navigator.clipboard.writeText(ai)
+                        }
                       >
                         Copy reminder
                       </button>
+
                       <button
                         className="lightbtn"
                         onClick={() => sendWhatsApp()}
@@ -801,9 +802,13 @@ async function loadDocs()
                   )}
 
                   <div className="no-print">
-                    <button className="lightbtn" onClick={downloadPDF}>
+                    <button
+                      className="lightbtn"
+                      onClick={downloadPDF}
+                    >
                       Print / Save PDF
                     </button>
+
                     <button
                       className="btn"
                       onClick={save}
@@ -819,6 +824,7 @@ async function loadDocs()
                     <b>Your Business</b>
                     <span>{type.toUpperCase()}</span>
                   </div>
+
                   <p className="muted">BILL TO</p>
                   <h3>{customer || "Customer"}</h3>
                   <small>{email}</small>
@@ -832,13 +838,21 @@ async function loadDocs()
                         <th>Amount</th>
                       </tr>
                     </thead>
+
                     <tbody>
                       {items.map((item, i) => (
                         <tr key={i}>
                           <td>{item.description || "Item"}</td>
                           <td>{item.qty}</td>
-                          <td>${Number(item.price).toFixed(2)}</td>
-                          <td>${(item.qty * item.price).toFixed(2)}</td>
+                          <td>
+                            ${Number(item.price).toFixed(2)}
+                          </td>
+                          <td>
+                            $
+                            {(
+                              item.qty * item.price
+                            ).toFixed(2)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -848,9 +862,11 @@ async function loadDocs()
                     <p>
                       Subtotal <b>${subtotal.toFixed(2)}</b>
                     </p>
+
                     <p>
                       Discount <b>-${discount.toFixed(2)}</b>
                     </p>
+
                     <p>
                       Tax{" "}
                       <b>
@@ -861,6 +877,7 @@ async function loadDocs()
                         ).toFixed(2)}
                       </b>
                     </p>
+
                     <h2>
                       Total <b>${total.toFixed(2)}</b>
                     </h2>
@@ -881,6 +898,7 @@ async function loadDocs()
                     Manage saved documents and payment status.
                   </p>
                 </div>
+
                 <button
                   className="btn"
                   onClick={() => setView("Create invoice")}
@@ -891,7 +909,9 @@ async function loadDocs()
 
               <div className="panel">
                 {docs.length === 0 ? (
-                  <p>No saved documents yet. Create your first invoice.</p>
+                  <p>
+                    No saved documents yet. Create your first invoice.
+                  </p>
                 ) : (
                   <div className="tablewrap">
                     <table>
@@ -904,6 +924,7 @@ async function loadDocs()
                           <th>Actions</th>
                         </tr>
                       </thead>
+
                       <tbody>
                         {docs.map((doc) => (
                           <tr key={doc.id}>
@@ -912,18 +933,26 @@ async function loadDocs()
                               <br />
                               <small>{doc.type}</small>
                             </td>
+
                             <td>
                               {doc.customer}
                               <br />
                               <small>{doc.email}</small>
                             </td>
-                            <td>${Number(doc.total).toFixed(2)}</td>
+
+                            <td>
+                              ${Number(doc.total).toFixed(2)}
+                            </td>
+
                             <td>
                               <select
                                 aria-label={`Status for ${doc.number}`}
                                 value={doc.status}
                                 onChange={(e) =>
-                                  changeStatus(doc, e.target.value)
+                                  changeStatus(
+                                    doc,
+                                    e.target.value
+                                  )
                                 }
                               >
                                 <option>Pending</option>
@@ -931,6 +960,7 @@ async function loadDocs()
                                 <option>Overdue</option>
                               </select>
                             </td>
+
                             <td>
                               <button
                                 className="lightbtn"
@@ -940,19 +970,23 @@ async function loadDocs()
                                   setType(doc.type);
                                   setItems(doc.items || []);
                                   setTax(Number(doc.tax));
-                                  setDiscount(Number(doc.discount));
+                                  setDiscount(
+                                    Number(doc.discount)
+                                  );
                                   setNotes(doc.notes || "");
                                   setView("Create invoice");
                                 }}
                               >
                                 Edit copy
                               </button>{" "}
+
                               <button
                                 className="lightbtn"
                                 onClick={() => sendWhatsApp(doc)}
                               >
                                 WhatsApp
                               </button>{" "}
+
                               <button
                                 className="lightbtn"
                                 onClick={() => deleteDoc(doc)}
@@ -985,10 +1019,15 @@ async function loadDocs()
                 <div className="panel pricing-card">
                   <p className="muted">START HERE</p>
                   <h2>Free</h2>
+
                   <h1>
                     ₹0 <small>/ month</small>
                   </h1>
-                  <p>For small businesses getting started.</p>
+
+                  <p>
+                    For small businesses getting started.
+                  </p>
+
                   <ul>
                     <li>10 invoices per month</li>
                     <li>PDF / print download</li>
@@ -996,30 +1035,42 @@ async function loadDocs()
                     <li>Manual WhatsApp reminders</li>
                     <li>Pending and Paid status</li>
                   </ul>
+
                   <button className="lightbtn" disabled>
                     Current plan
                   </button>
                 </div>
 
                 <div className="panel pricing-card featured">
-                  <p className="muted">FOR GROWING BUSINESSES</p>
+                  <p className="muted">
+                    FOR GROWING BUSINESSES
+                  </p>
+
                   <h2>Pro</h2>
+
                   <h1>
                     ₹199 <small>/ month</small>
                   </h1>
+
                   <p>More room for your business.</p>
+
                   <ul>
                     <li>Higher invoice allowance</li>
                     <li>All Free features</li>
                     <li>Business branding options</li>
                     <li>Priority feature updates</li>
                   </ul>
-                  <button className="btn" onClick={upgradeToPro}>
+
+                  <button
+                    className="btn"
+                    onClick={upgradeToPro}
+                  >
                     Upgrade to Pro
                   </button>
+
                   <p className="muted pricing-note">
-                    Secure checkout powered by Razorpay. Payment status is
-                    verified by the server.
+                    Secure checkout powered by Razorpay. Payment
+                    status is verified by the server.
                   </p>
                 </div>
               </div>
@@ -1032,10 +1083,11 @@ async function loadDocs()
                 <div>
                   <h1>Customers</h1>
                   <p className="muted">
-                    Customers are collected from your saved invoices and
-                    quotes.
+                    Customers are collected from your saved invoices
+                    and quotes.
                   </p>
                 </div>
+
                 <button
                   className="btn"
                   onClick={() => setView("Create invoice")}
@@ -1047,8 +1099,8 @@ async function loadDocs()
               <div className="panel">
                 {customers.length === 0 ? (
                   <p>
-                    No customers yet. Save an invoice with a customer name
-                    to see them here.
+                    No customers yet. Save an invoice with a customer
+                    name to see them here.
                   </p>
                 ) : (
                   <div className="tablewrap">
@@ -1061,11 +1113,13 @@ async function loadDocs()
                           <th>Action</th>
                         </tr>
                       </thead>
+
                       <tbody>
                         {customers.map((person) => (
                           <tr key={person.name.toLowerCase()}>
                             <td>{person.name}</td>
                             <td>{person.email || "—"}</td>
+
                             <td>
                               {
                                 docs.filter(
@@ -1075,6 +1129,7 @@ async function loadDocs()
                                 ).length
                               }
                             </td>
+
                             <td>
                               <button
                                 className="lightbtn"
@@ -1100,18 +1155,22 @@ async function loadDocs()
           {view !== "Create invoice" && (
             <div className="panel recent">
               <h3>Recent documents</h3>
+
               {docs.length ? (
                 docs.slice(0, 5).map((doc) => (
                   <div className="docrow" key={doc.id}>
                     <span>
                       {doc.number} · {doc.customer || "Customer"}
                     </span>
+
                     <b>${Number(doc.total).toFixed(2)}</b>
                     <small>{doc.status}</small>
                   </div>
                 ))
               ) : (
-                <p className="muted">No documents saved yet.</p>
+                <p className="muted">
+                  No documents saved yet.
+                </p>
               )}
             </div>
           )}
@@ -1120,3 +1179,4 @@ async function loadDocs()
     </main>
   );
 }
+```

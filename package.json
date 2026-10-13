@@ -1,8 +1,28 @@
+```json
 {
   "name": "invoiceai",
   "version": "1.0.1",
   "private": true,
-  "scripts": { "dev": "next dev", "build": "next build", "start": "next start", "lint": "tsc --noEmit" },
-  "dependencies": { "@supabase/ssr": "latest", "@supabase/supabase-js": "latest", "next": "latest", "openai": "latest", "react": "latest", "react-dom": "latest" },
-  "devDependencies": { "@types/node": "latest", "@types/react": "latest", "@types/react-dom": "latest", "typescript": "latest" }
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/ssr": "latest",
+    "@supabase/supabase-js": "latest",
+    "next": "latest",
+    "openai": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "razorpay": "^2.9.6"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "typescript": "latest"
+  }
 }
+```

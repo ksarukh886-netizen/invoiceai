@@ -1,14 +1,9 @@
+
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "../../lib/supabase-browser";
 import { useRouter } from "next/navigation";
-
-declare global {
-  interface Window {
-    Razorpay?: any;
-  }
-}
 
 type Item = {
   description: string;
@@ -38,7 +33,10 @@ type View =
   | "Customers"
   | "Pricing";
 
-const toSafeNumber = (value: number | string | undefined, fallback = 0) => {
+const toSafeNumber = (
+  value: number | string | undefined,
+  fallback = 0
+) => {
   const numeric = Number(value ?? fallback);
   return Number.isFinite(numeric) ? Math.max(0, numeric) : fallback;
 };
@@ -50,7 +48,10 @@ const getMonthStart = () => {
   return date;
 };
 
-const isCreatedThisMonth = (createdAt: string | null | undefined, monthStart: Date) => {
+const isCreatedThisMonth = (
+  createdAt: string | null | undefined,
+  monthStart: Date
+) => {
   if (!createdAt) return false;
   const time = Date.parse(createdAt);
   if (!Number.isFinite(time)) return false;
@@ -166,7 +167,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     void loadDocs();
-    // Load documents when the dashboard mounts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -185,8 +185,30 @@ export default function Dashboard() {
         return;
       }
 
-      if (!window.Razorpay) {
+      // Razorpay ko global Window type declaration ke bina access karein.
+      const razorpayWindow = window as any;
+
+      if (!razorpayWindow.Razorpay) {
         await new Promise<void>((resolve, reject) => {
+          const existingScript = document.querySelector(
+            'script[src="https://checkout.razorpay.com/v1/checkout.js"]'
+          ) as HTMLScriptElement | null;
+
+          if (existingScript) {
+            existingScript.addEventListener("load", () => resolve(), {
+              once: true,
+            });
+            existingScript.addEventListener(
+              "error",
+              () => reject(new Error("Razorpay load nahi hua.")),
+              { once: true }
+            );
+
+            // Agar script pehle se load ho chuki ho.
+            if (razorpayWindow.Razorpay) resolve();
+            return;
+          }
+
           const script = document.createElement("script");
           script.src = "https://checkout.razorpay.com/v1/checkout.js";
           script.async = true;
@@ -195,6 +217,7 @@ export default function Dashboard() {
             reject(
               new Error("Razorpay load nahi hua. Internet check karein.")
             );
+
           document.body.appendChild(script);
         });
       }
@@ -211,20 +234,22 @@ export default function Dashboard() {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(result.error || "Subscription create nahi hui.");
+        throw new Error(
+          result.error || "Subscription create nahi hui."
+        );
       }
 
       if (!result.keyId || !result.subscriptionId) {
         throw new Error("Razorpay subscription details nahi mili.");
       }
 
-      if (!window.Razorpay) {
+      if (!razorpayWindow.Razorpay) {
         throw new Error(
           "Razorpay checkout load nahi hua. Dobara try karein."
         );
       }
 
-      const checkout = new window.Razorpay({
+      const checkout = new razorpayWindow.Razorpay({
         key: result.keyId,
         subscription_id: result.subscriptionId,
         name: "InvoiceAI",
@@ -232,19 +257,22 @@ export default function Dashboard() {
 
         handler: async (payment: any) => {
           try {
-            const verifyResponse = await fetch("/api/subscription/verify", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: "Bearer " + session.access_token,
-              },
-              body: JSON.stringify({
-                razorpay_payment_id: payment.razorpay_payment_id,
-                razorpay_subscription_id:
-                  payment.razorpay_subscription_id,
-                razorpay_signature: payment.razorpay_signature,
-              }),
-            });
+            const verifyResponse = await fetch(
+              "/api/subscription/verify",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: "Bearer " + session.access_token,
+                },
+                body: JSON.stringify({
+                  razorpay_payment_id: payment.razorpay_payment_id,
+                  razorpay_subscription_id:
+                    payment.razorpay_subscription_id,
+                  razorpay_signature: payment.razorpay_signature,
+                }),
+              }
+            );
 
             const verified = await verifyResponse
               .json()
@@ -659,11 +687,7 @@ export default function Dashboard() {
                         aria-label="Description"
                         value={item.description}
                         onChange={(e) =>
-                          updateItem(
-                            index,
-                            "description",
-                            e.target.value
-                          )
+                          updateItem(index, "description", e.target.value)
                         }
                         placeholder="Item description"
                       />
@@ -725,9 +749,7 @@ export default function Dashboard() {
                         min="0"
                         value={tax}
                         onChange={(e) =>
-                          setTax(
-                            Math.max(0, Number(e.target.value) || 0)
-                          )
+                          setTax(Math.max(0, Number(e.target.value) || 0))
                         }
                       />
                     </label>
@@ -761,9 +783,7 @@ export default function Dashboard() {
                     onClick={generateAI}
                     disabled={loading}
                   >
-                    {loading
-                      ? "Generating…"
-                      : "✨ Generate AI reminder"}
+                    {loading ? "Generating…" : "✨ Generate AI reminder"}
                   </button>
 
                   {ai && (
@@ -966,9 +986,7 @@ export default function Dashboard() {
                                         ]
                                   );
                                   setTax(Number(doc.tax) || 0);
-                                  setDiscount(
-                                    Number(doc.discount) || 0
-                                  );
+                                  setDiscount(Number(doc.discount) || 0);
                                   setNotes(doc.notes || "");
                                   setView("Create invoice");
                                   setMessage(

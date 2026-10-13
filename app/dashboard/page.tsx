@@ -83,8 +83,7 @@ export default function Dashboard() {
       ),
     [docs]
   );
-
- 
+async function loadDocs()
   async function upgradeToPro() {
     setMessage("");
 

@@ -136,7 +136,6 @@ try {
 
       script.src = "https://checkout.razorpay.com/v1/checkout.js";
       script.async = true;
-
       script.onload = () => resolve();
       script.onerror = () =>
         reject(
@@ -151,7 +150,7 @@ try {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": "Bearer " + session.access_token,
+      Authorization: "Bearer " + session.access_token,
     },
     body: JSON.stringify({ plan: "monthly" }),
   });
@@ -182,7 +181,7 @@ try {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": "Bearer " + session.access_token,
+            Authorization: "Bearer " + session.access_token,
           },
           body: JSON.stringify({
             razorpay_payment_id: payment.razorpay_payment_id,
@@ -300,9 +299,9 @@ try {
   }
 
   const prefix = type === "Invoice" ? "INV" : "QUO";
-  ```tsx
-const number = prefix + "-" + String(docs.length + 1).padStart(3, "0");
-```
+  const number =
+    prefix + "-" + String(docs.length + 1).padStart(3, "0");
+
   const row = {
     user_id: user.id,
     number,
@@ -500,7 +499,11 @@ Invoice<span>AI</span> </b>
           docs.filter(
             (d) =>
               new Date(d.created_at) >=
-              new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+              new Date(
+                new Date().getFullYear(),
+                new Date().getMonth(),
+                1
+              )
           ).length
         }
         /10 invoices this month
@@ -528,7 +531,10 @@ Invoice<span>AI</span> </b>
               </p>
             </div>
 
-            <button className="btn" onClick={() => setView("Create invoice")}>
+            <button
+              className="btn"
+              onClick={() => setView("Create invoice")}
+            >
               ＋ Create invoice
             </button>
           </div>
@@ -720,7 +726,10 @@ Invoice<span>AI</span> </b>
                     Copy reminder
                   </button>
 
-                  <button className="lightbtn" onClick={() => sendWhatsApp()}>
+                  <button
+                    className="lightbtn"
+                    onClick={() => sendWhatsApp()}
+                  >
                     Send with WhatsApp
                   </button>
                 </div>
@@ -763,7 +772,9 @@ Invoice<span>AI</span> </b>
                       <td>{item.description || "Item"}</td>
                       <td>{item.qty}</td>
                       <td>${Number(item.price).toFixed(2)}</td>
-                      <td>${(item.qty * item.price).toFixed(2)}</td>
+                      <td>
+                        ${(item.qty * item.price).toFixed(2)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -810,7 +821,10 @@ Invoice<span>AI</span> </b>
               </p>
             </div>
 
-            <button className="btn" onClick={() => setView("Create invoice")}>
+            <button
+              className="btn"
+              onClick={() => setView("Create invoice")}
+            >
               ＋ Create new
             </button>
           </div>
@@ -975,7 +989,10 @@ Invoice<span>AI</span> </b>
               </p>
             </div>
 
-            <button className="btn" onClick={() => setView("Create invoice")}>
+            <button
+              className="btn"
+              onClick={() => setView("Create invoice")}
+            >
               ＋ Add customer via invoice
             </button>
           </div>

@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -38,6 +37,39 @@ type View =
   | "Invoices"
   | "Customers"
   | "Pricing";
+
+const toSafeNumber = (value: number | string | undefined, fallback = 0) => {
+  const numeric = Number(value ?? fallback);
+  return Number.isFinite(numeric) ? Math.max(0, numeric) : fallback;
+};
+
+const getMonthStart = () => {
+  const date = new Date();
+  date.setDate(1);
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const isCreatedThisMonth = (createdAt: string | null | undefined, monthStart: Date) => {
+  if (!createdAt) return false;
+  const time = Date.parse(createdAt);
+  if (!Number.isFinite(time)) return false;
+  return new Date(time) >= monthStart;
+};
+
+const buildDocumentNumber = (type: string, docs: Doc[]) => {
+  const prefix = type === "Invoice" ? "INV" : "QUO";
+
+  const lastSequence = docs
+    .filter((doc) => doc.type === type)
+    .map((doc) => {
+      const match = doc.number.match(/(\d+)$/);
+      return match ? Number(match[1]) : 0;
+    })
+    .reduce((max, value) => Math.max(max, value), 0);
+
+  return `${prefix}-${String(lastSequence + 1).padStart(3, "0")}`;
+};
 
 export default function Dashboard() {
   const supabase = createClient();
@@ -80,15 +112,10 @@ export default function Dashboard() {
     Math.max(0, subtotal - safeDiscount) *
     (1 + Math.max(0, Number(tax) || 0) / 100);
 
-  const monthStart = useMemo(() => {
-    const date = new Date();
-    date.setDate(1);
-    date.setHours(0, 0, 0, 0);
-    return date;
-  }, []);
+  const monthStart = useMemo(() => getMonthStart(), []);
 
-  const usedThisMonth = docs.filter(
-    (doc) => new Date(doc.created_at) >= monthStart
+  const usedThisMonth = docs.filter((doc) =>
+    isCreatedThisMonth(doc.created_at, monthStart)
   ).length;
 
   const customers = useMemo(
@@ -184,9 +211,7 @@ export default function Dashboard() {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(
-          result.error || "Subscription create nahi hui."
-        );
+        throw new Error(result.error || "Subscription create nahi hui.");
       }
 
       if (!result.keyId || !result.subscriptionId) {
@@ -207,22 +232,19 @@ export default function Dashboard() {
 
         handler: async (payment: any) => {
           try {
-            const verifyResponse = await fetch(
-              "/api/subscription/verify",
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: "Bearer " + session.access_token,
-                },
-                body: JSON.stringify({
-                  razorpay_payment_id: payment.razorpay_payment_id,
-                  razorpay_subscription_id:
-                    payment.razorpay_subscription_id,
-                  razorpay_signature: payment.razorpay_signature,
-                }),
-              }
-            );
+            const verifyResponse = await fetch("/api/subscription/verify", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: "Bearer " + session.access_token,
+              },
+              body: JSON.stringify({
+                razorpay_payment_id: payment.razorpay_payment_id,
+                razorpay_subscription_id:
+                  payment.razorpay_subscription_id,
+                razorpay_signature: payment.razorpay_signature,
+              }),
+            });
 
             const verified = await verifyResponse
               .json()
@@ -268,11 +290,7 @@ export default function Dashboard() {
     }
   }
 
-  function updateItem(
-    index: number,
-    key: keyof Item,
-    value: string
-  ) {
+  function updateItem(index: number, key: keyof Item, value: string) {
     setItems((current) =>
       current.map((item, i) => {
         if (i !== index) return item;
@@ -295,19 +313,13 @@ export default function Dashboard() {
   async function save() {
     setMessage("");
 
-    const currentMonthStart = new Date();
-    currentMonthStart.setDate(1);
-    currentMonthStart.setHours(0, 0, 0, 0);
-
-    const currentMonthCount = docs.filter(
-      (doc) => new Date(doc.created_at) >= currentMonthStart
+    const currentMonthCount = docs.filter((doc) =>
+      isCreatedThisMonth(doc.created_at, getMonthStart())
     ).length;
 
     if (currentMonthCount >= 10) {
       setView("Pricing");
-      setMessage(
-        "Free plan ki 10 invoices/month limit poori ho gayi."
-      );
+      setMessage("Free plan ki 10 invoices/month limit poori ho gayi.");
       return;
     }
 
@@ -316,10 +328,7 @@ export default function Dashboard() {
       return;
     }
 
-    if (
-      !items.length ||
-      items.some((item) => !item.description.trim())
-    ) {
+    if (!items.length || items.some((item) => !item.description.trim())) {
       setMessage("Har item ka description bharein.");
       return;
     }
@@ -338,9 +347,7 @@ export default function Dashboard() {
         return;
       }
 
-      const prefix = type === "Invoice" ? "INV" : "QUO";
-      const number =
-        prefix + "-" + String(docs.length + 1).padStart(3, "0");
+      const number = buildDocumentNumber(type, docs);
 
       const row = {
         user_id: user.id,
@@ -349,7 +356,7 @@ export default function Dashboard() {
         customer: customer.trim(),
         email: email.trim(),
         items,
-        tax: Math.max(0, Number(tax) || 0),
+        tax: toSafeNumber(tax),
         discount: safeDiscount,
         notes,
         total,

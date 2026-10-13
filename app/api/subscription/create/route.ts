@@ -1,4 +1,3 @@
-
 import { NextResponse } from "next/server";
 import Razorpay from "razorpay";
 import { createClient } from "@supabase/supabase-js";
@@ -15,34 +14,59 @@ export async function POST(req: Request) {
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    const supabaseKey =
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
     if (!keyId || !keySecret || !supabaseUrl || !supabaseKey) {
       return NextResponse.json(
-        { error: "Payment configuration missing hai. Environment Variables check karein." },
+        { error: "Payment configuration missing hai. Vercel Environment Variables check karein." },
         { status: 500 }
       );
     }
 
+    // Supabase access token dashboard se aana chahiye.
     const authHeader = req.headers.get("authorization");
+
     if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Pehle login karein." }, { status: 401 });
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    const { data: { user }, error } = await supabase.auth.getUser(
-      authHeader.slice(7)
-    );
-
-    if (error || !user) {
       return NextResponse.json(
-        { error: "Login session valid nahi hai. Dobara login karein." },
+        { error: "Login token nahi mila. Dobara login karein." },
         { status: 401 }
       );
     }
 
+    const accessToken = authHeader.slice(7).trim();
+
+    if (!accessToken) {
+      return NextResponse.json(
+        { error: "Login token khaali hai. Dobara login karein." },
+        { status: 401 }
+      );
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser(accessToken);
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: "Login session valid nahi hai. Logout karke dobara login karein." },
+        { status: 401 }
+      );
+    }
+
+    // `plan` aur `planType` dono accept honge.
     const body = await req.json();
-    const plan = typeof body.plan === "string" ? body.plan : "";
+    const requestedPlan =
+      typeof body.plan === "string"
+        ? body.plan
+        : typeof body.planType === "string"
+          ? body.planType
+          : "monthly";
+
+    const plan = requestedPlan.toLowerCase();
     const planId = plans[plan];
 
     if (!planId) {
@@ -62,7 +86,10 @@ export async function POST(req: Request) {
       total_count: plan === "monthly" ? 12 : 1,
       quantity: 1,
       customer_notify: 1,
-      notes: { supabase_user_id: user.id, plan },
+      notes: {
+        supabase_user_id: user.id,
+        plan,
+      },
     });
 
     return NextResponse.json({
@@ -72,8 +99,9 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("Subscription creation failed:", error);
+
     return NextResponse.json(
-      { error: "Subscription create nahi hui. Razorpay configuration check karein." },
+      { error: "Subscription create nahi hui. Vercel logs aur Razorpay configuration check karein." },
       { status: 500 }
     );
   }

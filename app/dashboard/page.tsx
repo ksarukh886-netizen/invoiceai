@@ -300,8 +300,9 @@ try {
   }
 
   const prefix = type === "Invoice" ? "INV" : "QUO";
-  const number = `${prefix}-${String(docs.length + 1).padStart(3, "0")}`;
-
+  ```tsx
+const number = prefix + "-" + String(docs.length + 1).padStart(3, "0");
+```
   const row = {
     user_id: user.id,
     number,

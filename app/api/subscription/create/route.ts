@@ -4,27 +4,37 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
-const plans: Record<string, string> = {
-  monthly: "plan_TnIKeIRAlgyTsg",
-  yearly: "plan_TnIZy0jPj7u4Jz",
-};
+function getPlanId(plan: string) {
+  const normalized = plan.toLowerCase();
+
+  if (normalized === "monthly") {
+    return process.env.RAZORPAY_MONTHLY_PLAN_ID || process.env.RAZORPAY_PLAN_ID;
+  }
+
+  if (normalized === "yearly") {
+    return process.env.RAZORPAY_YEARLY_PLAN_ID || process.env.RAZORPAY_PLAN_ID;
+  }
+
+  return undefined;
+}
 
 export async function POST(req: Request) {
   try {
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey =
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
     if (!keyId || !keySecret || !supabaseUrl || !supabaseKey) {
       return NextResponse.json(
-        { error: "Payment configuration missing hai. Vercel Environment Variables check karein." },
+        {
+          error:
+            "Payment configuration missing hai. Vercel mein RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, NEXT_PUBLIC_SUPABASE_URL aur NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY set karo.",
+        },
         { status: 500 }
       );
     }
 
-    // Supabase access token dashboard se aana chahiye.
     const authHeader = req.headers.get("authorization");
 
     if (!authHeader?.startsWith("Bearer ")) {
@@ -52,12 +62,13 @@ export async function POST(req: Request) {
 
     if (authError || !user) {
       return NextResponse.json(
-        { error: "Login session valid nahi hai. Logout karke dobara login karein." },
+        {
+          error: "Login session valid nahi hai. Logout karke dobara login karein.",
+        },
         { status: 401 }
       );
     }
 
-    // `plan` aur `planType` dono accept honge.
     const body = await req.json();
     const requestedPlan =
       typeof body.plan === "string"
@@ -67,11 +78,14 @@ export async function POST(req: Request) {
           : "monthly";
 
     const plan = requestedPlan.toLowerCase();
-    const planId = plans[plan];
+    const planId = getPlanId(plan);
 
     if (!planId) {
       return NextResponse.json(
-        { error: "Plan monthly ya yearly hona chahiye." },
+        {
+          error:
+            "Razorpay plan ID missing hai. Vercel mein RAZORPAY_MONTHLY_PLAN_ID ya RAZORPAY_YEARLY_PLAN_ID set karo.",
+        },
         { status: 400 }
       );
     }
@@ -97,11 +111,15 @@ export async function POST(req: Request) {
       keyId,
       plan,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Subscription creation failed:", error);
 
     return NextResponse.json(
-      { error: "Subscription create nahi hui. Vercel logs aur Razorpay configuration check karein." },
+      {
+        error:
+          error?.message ||
+          "Subscription create nahi hui. Vercel logs aur Razorpay configuration check karein.",
+      },
       { status: 500 }
     );
   }

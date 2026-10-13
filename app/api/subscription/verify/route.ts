@@ -37,12 +37,12 @@ export async function POST(req: Request) {
       .update(`${paymentId}|${subscriptionId}`)
       .digest("hex");
 
-    const received = Buffer.from(signature, "hex");
-    const expected = Buffer.from(expectedSignature, "hex");
+    const expectedBuffer = Buffer.from(expectedSignature);
+    const receivedBuffer = Buffer.from(signature);
 
     if (
-      received.length !== expected.length ||
-      !crypto.timingSafeEqual(received, expected)
+      expectedBuffer.length !== receivedBuffer.length ||
+      !crypto.timingSafeEqual(expectedBuffer, receivedBuffer)
     ) {
       return NextResponse.json(
         { verified: false, error: "Payment signature invalid hai." },

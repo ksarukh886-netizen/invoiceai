@@ -28,7 +28,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Signature ko raw request body se verify karein.
     const rawBody = await req.text();
 
     const expectedSignature = crypto
@@ -36,12 +35,12 @@ export async function POST(req: Request) {
       .update(rawBody)
       .digest("hex");
 
-    const received = Buffer.from(signature, "hex");
-    const expected = Buffer.from(expectedSignature, "hex");
+    const expectedBuffer = Buffer.from(expectedSignature);
+    const receivedBuffer = Buffer.from(signature);
 
     if (
-      received.length !== expected.length ||
-      !crypto.timingSafeEqual(received, expected)
+      expectedBuffer.length !== receivedBuffer.length ||
+      !crypto.timingSafeEqual(expectedBuffer, receivedBuffer)
     ) {
       return NextResponse.json(
         { error: "Webhook signature invalid hai." },
@@ -53,7 +52,6 @@ export async function POST(req: Request) {
     const subscription = event.payload?.subscription?.entity;
     const subscriptionId = subscription?.id;
 
-    // Sirf relevant subscription events process karein.
     const statusByEvent: Record<string, string> = {
       "subscription.activated": "active",
       "subscription.charged": "active",
@@ -72,7 +70,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ received: true });
     }
 
-    // Database mein sirf matching Razorpay subscription update karein.
     const supabase = createClient(supabaseUrl, serviceRoleKey, {
       auth: {
         persistSession: false,
@@ -94,7 +91,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Unknown subscription ko automatically create/activate na karein.
     if (!existing) {
       console.warn("Unmatched Razorpay subscription event:", event.event);
       return NextResponse.json({ received: true });

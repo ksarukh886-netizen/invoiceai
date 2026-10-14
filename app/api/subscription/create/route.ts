@@ -20,6 +20,10 @@ function getPlanId(plan: PlanType): string | undefined {
   )?.trim();
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export async function POST(req: Request) {
   try {
     const keyId = process.env.RAZORPAY_KEY_ID?.trim();
@@ -78,12 +82,28 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = await req.json();
+    let body: unknown;
+
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Request body valid JSON nahi hai." },
+        { status: 400 }
+      );
+    }
+
+    if (!isRecord(body)) {
+      return NextResponse.json(
+        { error: "Request body ka format galat hai." },
+        { status: 400 }
+      );
+    }
 
     const requestedPlan =
-      typeof body?.plan === "string"
+      typeof body.plan === "string"
         ? body.plan
-        : typeof body?.planType === "string"
+        : typeof body.planType === "string"
           ? body.planType
           : "monthly";
 
@@ -100,14 +120,11 @@ export async function POST(req: Request) {
     const planId = getPlanId(plan);
 
     if (!planId) {
-      const message =
-        "Razorpay " +
-        plan +
-        " plan ID missing hai. Vercel Environment Variables check karein.";
-
       return NextResponse.json(
-        { error: message },
-        { status: 400 }
+        {
+          error: `Razorpay ${plan} plan ID missing hai. Vercel Environment Variables check karein.`,
+        },
+        { status: 500 }
       );
     }
 
@@ -136,44 +153,53 @@ export async function POST(req: Request) {
       customer_notify: 1,
       notes: {
         supabase_user_id: user.id,
-        plan: plan,
+        plan,
       },
     });
 
     return NextResponse.json({
       subscriptionId: subscription.id,
-      keyId: keyId,
-      plan: plan,
+      keyId,
+      plan,
     });
   } catch (error: unknown) {
-    const err = error as {
-      statusCode?: number;
-      error?: {
-        code?: string;
-        description?: string;
-      };
-      message?: string;
-    };
-
-    console.error("Subscription creation failed:", {
-      statusCode: err?.statusCode,
-      code: err?.error?.code,
-      description: err?.error?.description,
-      message: err?.message,
-    });
+    const errorRecord = isRecord(error) ? error : {};
+    const razorpayError = isRecord(errorRecord.error)
+      ? errorRecord.error
+      : {};
 
     const statusCode =
-      err?.statusCode &&
-      err.statusCode >= 400 &&
-      err.statusCode < 600
-        ? err.statusCode
+      typeof errorRecord.statusCode === "number" &&
+      errorRecord.statusCode >= 400 &&
+      errorRecord.statusCode < 600
+        ? errorRecord.statusCode
         : 500;
+
+    const description =
+      typeof razorpayError.description === "string"
+        ? razorpayError.description
+        : undefined;
+
+    const message =
+      typeof errorRecord.message === "string"
+        ? errorRecord.message
+        : undefined;
+
+    console.error("Subscription creation failed:", {
+      statusCode,
+      code:
+        typeof razorpayError.code === "string"
+          ? razorpayError.code
+          : undefined,
+      description,
+      message,
+    });
 
     return NextResponse.json(
       {
         error:
-          err?.error?.description ||
-          err?.message ||
+          description ||
+          message ||
           "Subscription create nahi hui. Vercel Logs check karein.",
       },
       { status: statusCode }

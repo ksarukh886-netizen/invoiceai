@@ -7,179 +7,176 @@ export const runtime = "nodejs";
 type PlanType = "monthly" | "yearly";
 
 function getPlanId(plan: PlanType): string | undefined {
-const planId =
-plan === "monthly"
-? process.env.RAZORPAY_MONTHLY_PLAN_ID || process.env.RAZORPAY_PLAN_ID
-: process.env.RAZORPAY_YEARLY_PLAN_ID || process.env.RAZORPAY_PLAN_ID;
+  if (plan === "monthly") {
+    return (
+      process.env.RAZORPAY_MONTHLY_PLAN_ID ||
+      process.env.RAZORPAY_PLAN_ID
+    )?.trim();
+  }
 
-return planId?.trim();
+  return (
+    process.env.RAZORPAY_YEARLY_PLAN_ID ||
+    process.env.RAZORPAY_PLAN_ID
+  )?.trim();
 }
 
 export async function POST(req: Request) {
-try {
-const keyId = process.env.RAZORPAY_KEY_ID?.trim();
-const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim();
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-const supabaseKey =
-process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
+  try {
+    const keyId = process.env.RAZORPAY_KEY_ID?.trim();
+    const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim();
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+    const supabaseKey =
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
 
-```
-if (!keyId || !keySecret || !supabaseUrl || !supabaseKey) {
-  console.error("Subscription configuration is incomplete", {
-    keyIdPresent: Boolean(keyId),
-    keySecretPresent: Boolean(keySecret),
-    supabaseUrlPresent: Boolean(supabaseUrl),
-    supabaseKeyPresent: Boolean(supabaseKey),
-  });
+    if (!keyId || !keySecret || !supabaseUrl || !supabaseKey) {
+      return NextResponse.json(
+        {
+          error:
+            "Configuration missing hai. Vercel Environment Variables check karein.",
+        },
+        { status: 500 }
+      );
+    }
 
-  return NextResponse.json(
-    { error: "Configuration missing hai. Vercel Environment Variables check karein." },
-    { status: 500 }
-  );
-}
+    const authHeader = req.headers.get("authorization");
 
-const authHeader = req.headers.get("authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return NextResponse.json(
+        { error: "Login token nahi mila. Dobara login karein." },
+        { status: 401 }
+      );
+    }
 
-if (!authHeader?.startsWith("Bearer ")) {
-  return NextResponse.json(
-    { error: "Login token nahi mila. Dobara login karein." },
-    { status: 401 }
-  );
-}
+    const accessToken = authHeader.slice(7).trim();
 
-const accessToken = authHeader.slice(7).trim();
+    if (!accessToken) {
+      return NextResponse.json(
+        { error: "Login token khaali hai. Dobara login karein." },
+        { status: 401 }
+      );
+    }
 
-if (!accessToken) {
-  return NextResponse.json(
-    { error: "Login token khaali hai. Dobara login karein." },
-    { status: 401 }
-  );
-}
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser(accessToken);
 
-const {
-  data: { user },
-  error: authError,
-} = await supabase.auth.getUser(accessToken);
+    if (authError || !user) {
+      console.error(
+        "Supabase authentication failed:",
+        authError?.message
+      );
 
-if (authError || !user) {
-  console.error("Supabase authentication failed", {
-    message: authError?.message,
-  });
+      return NextResponse.json(
+        {
+          error:
+            "Login session valid nahi hai. Logout karke dobara login karein.",
+        },
+        { status: 401 }
+      );
+    }
 
-  return NextResponse.json(
-    { error: "Login session valid nahi hai. Logout karke dobara login karein." },
-    { status: 401 }
-  );
-}
+    const body = await req.json();
 
-const body = await req.json();
-const requestedPlan =
-  typeof body?.plan === "string"
-    ? body.plan
-    : typeof body?.planType === "string"
-      ? body.planType
-      : "monthly";
+    const requestedPlan =
+      typeof body?.plan === "string"
+        ? body.plan
+        : typeof body?.planType === "string"
+          ? body.planType
+          : "monthly";
 
-const planValue = requestedPlan.trim().toLowerCase();
+    const planValue = requestedPlan.trim().toLowerCase();
 
-if (planValue !== "monthly" && planValue !== "yearly") {
-  return NextResponse.json(
-    { error: "Plan monthly ya yearly hona chahiye." },
-    { status: 400 }
-  );
-}
+    if (planValue !== "monthly" && planValue !== "yearly") {
+      return NextResponse.json(
+        { error: "Plan monthly ya yearly hona chahiye." },
+        { status: 400 }
+      );
+    }
 
-const plan = planValue as PlanType;
-const planId = getPlanId(plan);
+    const plan: PlanType = planValue;
+    const planId = getPlanId(plan);
 
-if (!planId) {
-  return NextResponse.json(
-    { error: `Razorpay ${plan} plan ID missing hai. Vercel Environment Variables check karein.` },
-    { status: 400 }
-  );
-}
+    if (!planId) {
+      const message =
+        "Razorpay " +
+        plan +
+        " plan ID missing hai. Vercel Environment Variables check karein.";
 
-const isTestKey = keyId.startsWith("rzp_test_");
-const isLiveKey = keyId.startsWith("rzp_live_");
+      return NextResponse.json(
+        { error: message },
+        { status: 400 }
+      );
+    }
 
-if (!isTestKey && !isLiveKey) {
-  console.error("Razorpay Key ID format is unexpected", {
-    keyPrefix: keyId.slice(0, 8),
-  });
+    const isTestKey = keyId.startsWith("rzp_test_");
+    const isLiveKey = keyId.startsWith("rzp_live_");
 
-  return NextResponse.json(
-    { error: "Razorpay Key ID format galat lag raha hai. Dashboard se sahi Key ID copy karein." },
-    { status: 500 }
-  );
-}
+    if (!isTestKey && !isLiveKey) {
+      return NextResponse.json(
+        {
+          error:
+            "Razorpay Key ID ka format galat hai. Dashboard se sahi Key ID copy karein.",
+        },
+        { status: 500 }
+      );
+    }
 
-console.log("Razorpay configuration check", {
-  keyPrefix: keyId.slice(0, 8),
-  mode: isTestKey ? "test" : "live",
-  keyLength: keyId.length,
-  secretLength: keySecret.length,
-  plan,
-  planIdPresent: Boolean(planId),
-});
+    const razorpay = new Razorpay({
+      key_id: keyId,
+      key_secret: keySecret,
+    });
 
-const razorpay = new Razorpay({
-  key_id: keyId,
-  key_secret: keySecret,
-});
+    const subscription = await razorpay.subscriptions.create({
+      plan_id: planId,
+      total_count: plan === "monthly" ? 12 : 1,
+      quantity: 1,
+      customer_notify: 1,
+      notes: {
+        supabase_user_id: user.id,
+        plan: plan,
+      },
+    });
 
-const subscription = await razorpay.subscriptions.create({
-  plan_id: planId,
-  total_count: plan === "monthly" ? 12 : 1,
-  quantity: 1,
-  customer_notify: 1,
-  notes: {
-    supabase_user_id: user.id,
-    plan,
-  },
-});
+    return NextResponse.json({
+      subscriptionId: subscription.id,
+      keyId: keyId,
+      plan: plan,
+    });
+  } catch (error: unknown) {
+    const err = error as {
+      statusCode?: number;
+      error?: {
+        code?: string;
+        description?: string;
+      };
+      message?: string;
+    };
 
-return NextResponse.json({
-  subscriptionId: subscription.id,
-  keyId,
-  plan,
-});
-```
+    console.error("Subscription creation failed:", {
+      statusCode: err?.statusCode,
+      code: err?.error?.code,
+      description: err?.error?.description,
+      message: err?.message,
+    });
 
-} catch (error: unknown) {
-const err = error as {
-statusCode?: number;
-error?: {
-code?: string;
-description?: string;
-};
-message?: string;
-};
+    const statusCode =
+      err?.statusCode &&
+      err.statusCode >= 400 &&
+      err.statusCode < 600
+        ? err.statusCode
+        : 500;
 
-```
-console.error("Subscription creation failed", {
-  statusCode: err?.statusCode,
-  code: err?.error?.code,
-  description: err?.error?.description,
-  message: err?.message,
-});
-
-const status =
-  err?.statusCode && err.statusCode >= 400 && err.statusCode < 600
-    ? err.statusCode
-    : 500;
-
-return NextResponse.json(
-  {
-    error:
-      err?.error?.description ||
-      err?.message ||
-      "Subscription create nahi hui. Vercel Logs check karein.",
-  },
-  { status }
-);
-```
-
-}
+    return NextResponse.json(
+      {
+        error:
+          err?.error?.description ||
+          err?.message ||
+          "Subscription create nahi hui. Vercel Logs check karein.",
+      },
+      { status: statusCode }
+    );
+  }
 }

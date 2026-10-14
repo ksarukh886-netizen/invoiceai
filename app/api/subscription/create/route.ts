@@ -20,7 +20,7 @@ function getPlanId(plan: PlanType): string | undefined {
   )?.trim();
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -30,6 +30,7 @@ export async function POST(req: Request) {
     const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim();
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
     const supabaseKey =
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ||
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
 
     if (!keyId || !keySecret || !supabaseUrl || !supabaseKey) {
@@ -43,7 +44,6 @@ export async function POST(req: Request) {
     }
 
     const authHeader = req.headers.get("authorization");
-
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return NextResponse.json(
         { error: "Login token nahi mila. Dobara login karein." },
@@ -52,7 +52,6 @@ export async function POST(req: Request) {
     }
 
     const accessToken = authHeader.slice(7).trim();
-
     if (!accessToken) {
       return NextResponse.json(
         { error: "Login token khaali hai. Dobara login karein." },
@@ -68,11 +67,7 @@ export async function POST(req: Request) {
     } = await supabase.auth.getUser(accessToken);
 
     if (authError || !user) {
-      console.error(
-        "Supabase authentication failed:",
-        authError?.message
-      );
-
+      console.error("Supabase auth failed:", authError?.message);
       return NextResponse.json(
         {
           error:
@@ -83,7 +78,6 @@ export async function POST(req: Request) {
     }
 
     let body: unknown;
-
     try {
       body = await req.json();
     } catch {
@@ -93,7 +87,7 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!isRecord(body)) {
+    if (!isObject(body)) {
       return NextResponse.json(
         { error: "Request body ka format galat hai." },
         { status: 400 }
@@ -163,16 +157,14 @@ export async function POST(req: Request) {
       plan,
     });
   } catch (error: unknown) {
-    const errorRecord = isRecord(error) ? error : {};
-    const razorpayError = isRecord(errorRecord.error)
-      ? errorRecord.error
-      : {};
+    const err = isObject(error) ? error : {};
+    const razorpayError = isObject(err.error) ? err.error : {};
 
     const statusCode =
-      typeof errorRecord.statusCode === "number" &&
-      errorRecord.statusCode >= 400 &&
-      errorRecord.statusCode < 600
-        ? errorRecord.statusCode
+      typeof err.statusCode === "number" &&
+      err.statusCode >= 400 &&
+      err.statusCode < 600
+        ? err.statusCode
         : 500;
 
     const description =
@@ -181,9 +173,7 @@ export async function POST(req: Request) {
         : undefined;
 
     const message =
-      typeof errorRecord.message === "string"
-        ? errorRecord.message
-        : undefined;
+      typeof err.message === "string" ? err.message : undefined;
 
     console.error("Subscription creation failed:", {
       statusCode,

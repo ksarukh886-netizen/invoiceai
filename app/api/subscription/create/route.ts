@@ -1,3 +1,4 @@
+```ts
 import { NextResponse } from "next/server";
 import Razorpay from "razorpay";
 import { createClient } from "@supabase/supabase-js";
@@ -8,11 +9,17 @@ function getPlanId(plan: string) {
   const normalized = plan.toLowerCase();
 
   if (normalized === "monthly") {
-    return process.env.RAZORPAY_MONTHLY_PLAN_ID || process.env.RAZORPAY_PLAN_ID;
+    return (
+      process.env.RAZORPAY_MONTHLY_PLAN_ID ||
+      process.env.RAZORPAY_PLAN_ID
+    );
   }
 
   if (normalized === "yearly") {
-    return process.env.RAZORPAY_YEARLY_PLAN_ID || process.env.RAZORPAY_PLAN_ID;
+    return (
+      process.env.RAZORPAY_YEARLY_PLAN_ID ||
+      process.env.RAZORPAY_PLAN_ID
+    );
   }
 
   return undefined;
@@ -20,20 +27,34 @@ function getPlanId(plan: string) {
 
 export async function POST(req: Request) {
   try {
-    const keyId = process.env.RAZORPAY_KEY_ID;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    const keyId = process.env.RAZORPAY_KEY_ID?.trim();
+    const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim();
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    const supabaseKey =
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
     if (!keyId || !keySecret || !supabaseUrl || !supabaseKey) {
+      console.error("Payment configuration missing", {
+        keyIdPresent: Boolean(keyId),
+        keySecretPresent: Boolean(keySecret),
+        supabaseUrlPresent: Boolean(supabaseUrl),
+        supabaseKeyPresent: Boolean(supabaseKey),
+      });
+
       return NextResponse.json(
-        {
-          error:
-            "Payment configuration missing hai. Vercel mein RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, NEXT_PUBLIC_SUPABASE_URL aur NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY set karo.",
-        },
+        { error: "Payment configuration missing hai. Vercel variables check karein." },
         { status: 500 }
       );
     }
+
+    // Safe diagnostic: secret ki actual value kabhi log na karein.
+    console.log("Razorpay credential diagnostic", {
+      keyIdPrefix: keyId.slice(0, 8),
+      keyIdLength: keyId.length,
+      secretLength: keySecret.length,
+      isTestKey: keyId.startsWith("rzp_test_"),
+      isLiveKey: keyId.startsWith("rzp_live_"),
+    });
 
     const authHeader = req.headers.get("authorization");
 
@@ -61,15 +82,18 @@ export async function POST(req: Request) {
     } = await supabase.auth.getUser(accessToken);
 
     if (authError || !user) {
+      console.error("Supabase user authentication failed", {
+        message: authError?.message,
+      });
+
       return NextResponse.json(
-        {
-          error: "Login session valid nahi hai. Logout karke dobara login karein.",
-        },
+        { error: "Login session valid nahi hai. Dobara login karein." },
         { status: 401 }
       );
     }
 
     const body = await req.json();
+
     const requestedPlan =
       typeof body.plan === "string"
         ? body.plan
@@ -78,14 +102,19 @@ export async function POST(req: Request) {
           : "monthly";
 
     const plan = requestedPlan.toLowerCase();
+
+    if (plan !== "monthly" && plan !== "yearly") {
+      return NextResponse.json(
+        { error: "Plan monthly ya yearly hona chahiye." },
+        { status: 400 }
+      );
+    }
+
     const planId = getPlanId(plan);
 
     if (!planId) {
       return NextResponse.json(
-        {
-          error:
-            "Razorpay plan ID missing hai. Vercel mein RAZORPAY_MONTHLY_PLAN_ID ya RAZORPAY_YEARLY_PLAN_ID set karo.",
-        },
+        { error: "Razorpay plan ID missing hai. Vercel variables check karein." },
         { status: 400 }
       );
     }
@@ -112,15 +141,17 @@ export async function POST(req: Request) {
       plan,
     });
   } catch (error: any) {
-    console.error("Subscription creation failed:", error);
+    console.error("Subscription creation failed:", {
+      statusCode: error?.statusCode,
+      code: error?.error?.code,
+      description: error?.error?.description,
+      message: error?.message,
+    });
 
     return NextResponse.json(
-      {
-        error:
-          error?.message ||
-          "Subscription create nahi hui. Vercel logs aur Razorpay configuration check karein.",
-      },
+      { error: "Subscription create nahi hui. Vercel Logs check karein." },
       { status: 500 }
     );
   }
 }
+```

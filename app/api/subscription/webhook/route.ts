@@ -1,139 +1,96 @@
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 
-export const runtime = "nodejs";
-
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    if (!webhookSecret || !supabaseUrl || !serviceRoleKey) {
-      console.error("Webhook environment configuration missing");
+    if (!secret || !supabaseUrl || !serviceKey) {
       return NextResponse.json(
-        { error: "Server configuration missing hai." },
+        { error: "Missing server environment variables" },
         { status: 500 }
       );
     }
 
+    const body = await req.text();
     const signature = req.headers.get("x-razorpay-signature");
 
     if (!signature) {
-      return NextResponse.json(
-        { error: "Webhook signature missing hai." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing signature" }, { status: 400 });
     }
 
-    const rawBody = await req.text();
-
-    const expectedSignature = crypto
-      .createHmac("sha256", webhookSecret)
-      .update(rawBody)
+    const expected = crypto
+      .createHmac("sha256", secret)
+      .update(body)
       .digest("hex");
 
-    const expectedBuffer = Buffer.from(expectedSignature);
-    const receivedBuffer = Buffer.from(signature);
+    const a = Buffer.from(expected, "hex");
+    const b = Buffer.from(signature, "hex");
 
-    if (
-      expectedBuffer.length !== receivedBuffer.length ||
-      !crypto.timingSafeEqual(expectedBuffer, receivedBuffer)
-    ) {
-      return NextResponse.json(
-        { error: "Webhook signature invalid hai." },
-        { status: 400 }
-      );
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
     }
 
-    const event = JSON.parse(rawBody);
-    const subscription = event.payload?.subscription?.entity;
-    const subscriptionId = subscription?.id;
+    const event = JSON.parse(body);
+    const entity = event.payload?.subscription?.entity;
 
-    const statusByEvent: Record<string, string> = {
-      "subscription.activated": "active",
-      "subscription.charged": "active",
-      "subscription.authenticated": "active",
-      "subscription.pending": "inactive",
-      "subscription.halted": "halted",
-      "subscription.cancelled": "cancelled",
-      "subscription.completed": "completed",
-      "subscription.paused": "inactive",
-      "subscription.resumed": "active",
-    };
-
-    const newStatus = statusByEvent[event.event];
-
-    if (!newStatus || !subscriptionId) {
+    if (!entity) {
       return NextResponse.json({ received: true });
     }
 
-    const supabase = createClient(supabaseUrl, serviceRoleKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
+    const userId = entity.notes?.supabase_user_id;
+
+    if (!userId) {
+      return NextResponse.json({ error: "User ID missing in notes" }, { status: 400 });
+    }
+
+    const activeEvents = [
+      "subscription.activated",
+      "subscription.charged",
+      "subscription.resumed",
+    ];
+
+    const inactiveEvents = [
+      "subscription.cancelled",
+      "subscription.halted",
+      "subscription.completed",
+      "subscription.paused",
+      "subscription.pending",
+    ];
+
+    if (!activeEvents.includes(event.event) && !inactiveEvents.includes(event.event)) {
+      return NextResponse.json({ received: true });
+    }
+
+    const isActive = activeEvents.includes(event.event) && entity.status === "active";
+
+    const supabase = createClient(supabaseUrl, serviceKey);
+
+    const { error } = await supabase.from("subscriptions").upsert(
+      {
+        user_id: userId,
+        plan: "pro",
+        status: isActive ? "active" : entity.status || "pending",
+        razorpay_subscription_id: entity.id,
+        current_period_end: entity.current_end
+          ? new Date(entity.current_end * 1000).toISOString()
+          : null,
       },
-    });
+      { onConflict: "user_id" }
+    );
 
-    const { data: existing, error: lookupError } = await supabase
-      .from("subscriptions")
-      .select("id, plan")
-      .eq("razorpay_subscription_id", subscriptionId)
-      .maybeSingle();
-
-    if (lookupError) {
-      console.error("Subscription lookup failed:", lookupError.message);
-      return NextResponse.json(
-        { error: "Subscription lookup failed." },
-        { status: 500 }
-      );
-    }
-
-    if (!existing) {
-      console.warn("Unmatched Razorpay subscription event:", event.event);
-      return NextResponse.json({ received: true });
-    }
-
-    const currentEnd = subscription?.current_end;
-    const currentPeriodEnd =
-      typeof currentEnd === "number"
-        ? new Date(currentEnd * 1000).toISOString()
-        : null;
-
-    const updateData: {
-      status: string;
-      updated_at: string;
-      current_period_end?: string | null;
-    } = {
-      status: newStatus,
-      updated_at: new Date().toISOString(),
-    };
-
-    if (currentPeriodEnd) {
-      updateData.current_period_end = currentPeriodEnd;
-    }
-
-    const { error: updateError } = await supabase
-      .from("subscriptions")
-      .update(updateData)
-      .eq("razorpay_subscription_id", subscriptionId);
-
-    if (updateError) {
-      console.error("Subscription update failed:", updateError.message);
-      return NextResponse.json(
-        { error: "Subscription update failed." },
-        { status: 500 }
-      );
+    if (error) {
+      console.error("Subscription webhook database error:", error);
+      return NextResponse.json({ error: "Database update failed" }, { status: 500 });
     }
 
     return NextResponse.json({ received: true });
   } catch (error) {
-    console.error("Webhook processing failed:", error);
-    return NextResponse.json(
-      { error: "Webhook request process nahi hui." },
-      { status: 400 }
-    );
+    console.error("Razorpay webhook error:", error);
+    return NextResponse.json({ error: "Webhook processing failed" }, { status: 500 });
   }
 }

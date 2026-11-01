@@ -33,10 +33,7 @@ type View =
   | "Customers"
   | "Pricing";
 
-const toSafeNumber = (
-  value: number | string | undefined,
-  fallback = 0
-) => {
+const toSafeNumber = (value: number | string | undefined, fallback = 0) => {
   const numeric = Number(value ?? fallback);
   return Number.isFinite(numeric) ? Math.max(0, numeric) : fallback;
 };
@@ -73,7 +70,7 @@ const buildDocumentNumber = (type: string, docs: Doc[]) => {
 };
 
 export default function Dashboard() {
-  const supabase = createClient();
+  const [supabase] = useState(() => createClient());
   const router = useRouter();
 
   const [docs, setDocs] = useState<Doc[]>([]);
@@ -145,7 +142,11 @@ export default function Dashboard() {
       } = await supabase.auth.getUser();
 
       if (authError || !user) {
-        router.push("/login");
+        setMessage(
+          authError?.message ||
+            "Login session nahi mili. Dobara login karein."
+        );
+        router.replace("/login");
         return;
       }
 
@@ -160,8 +161,12 @@ export default function Dashboard() {
       }
 
       setDocs((data || []) as Doc[]);
-    } catch {
-      setMessage("Documents load nahi hue. Dobara try karein.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Documents load nahi hue. Dobara try karein."
+      );
     }
   }
 
@@ -185,7 +190,6 @@ export default function Dashboard() {
         return;
       }
 
-      // Razorpay ko global Window type declaration ke bina access karein.
       const razorpayWindow = window as any;
 
       if (!razorpayWindow.Razorpay) {
@@ -204,7 +208,6 @@ export default function Dashboard() {
               { once: true }
             );
 
-            // Agar script pehle se load ho chuki ho.
             if (razorpayWindow.Razorpay) resolve();
             return;
           }
@@ -234,9 +237,7 @@ export default function Dashboard() {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(
-          result.error || "Subscription create nahi hui."
-        );
+        throw new Error(result.error || "Subscription create nahi hui.");
       }
 
       if (!result.keyId || !result.subscriptionId) {
@@ -244,9 +245,7 @@ export default function Dashboard() {
       }
 
       if (!razorpayWindow.Razorpay) {
-        throw new Error(
-          "Razorpay checkout load nahi hua. Dobara try karein."
-        );
+        throw new Error("Razorpay checkout load nahi hua. Dobara try karein.");
       }
 
       const checkout = new razorpayWindow.Razorpay({
@@ -370,7 +369,9 @@ export default function Dashboard() {
       } = await supabase.auth.getUser();
 
       if (authError || !user) {
-        setMessage("Dobara login karein.");
+        setMessage(
+          authError?.message || "Dobara login karein."
+        );
         router.push("/login");
         return;
       }
@@ -408,8 +409,12 @@ export default function Dashboard() {
 
       setMessage(`${number} save ho gaya!`);
       setView("Invoices");
-    } catch {
-      setMessage("Document save nahi ho paya. Dobara try karein.");
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Document save nahi ho paya. Dobara try karein."
+      );
     } finally {
       setBusy(false);
     }

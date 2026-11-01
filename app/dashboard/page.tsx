@@ -33,16 +33,16 @@ type View =
   | "Customers"
   | "Pricing";
 
-const toSafeNumber = (value: number | string | undefined, fallback = 0) => {
-  const numeric = Number(value ?? fallback);
-  return Number.isFinite(numeric) ? Math.max(0, numeric) : fallback;
+const toSafeNumber = (value: number | string | undefined) => {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? Math.max(0, n) : 0;
 };
 
 const getMonthStart = () => {
-  const date = new Date();
-  date.setDate(1);
-  date.setHours(0, 0, 0, 0);
-  return date;
+  const d = new Date();
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d;
 };
 
 const isCreatedThisMonth = (
@@ -51,14 +51,13 @@ const isCreatedThisMonth = (
 ) => {
   if (!createdAt) return false;
   const time = Date.parse(createdAt);
-  if (!Number.isFinite(time)) return false;
-  return new Date(time) >= monthStart;
+  return Number.isFinite(time) && new Date(time) >= monthStart;
 };
 
 const buildDocumentNumber = (type: string, docs: Doc[]) => {
   const prefix = type === "Invoice" ? "INV" : "QUO";
 
-  const lastSequence = docs
+  const last = docs
     .filter((doc) => doc.type === type)
     .map((doc) => {
       const match = doc.number.match(/(\d+)$/);
@@ -66,7 +65,7 @@ const buildDocumentNumber = (type: string, docs: Doc[]) => {
     })
     .reduce((max, value) => Math.max(max, value), 0);
 
-  return `${prefix}-${String(lastSequence + 1).padStart(3, "0")}`;
+  return `${prefix}-${String(last + 1).padStart(3, "0")}`;
 };
 
 export default function Dashboard() {
@@ -88,6 +87,10 @@ export default function Dashboard() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [view, setView] = useState<View>("Dashboard");
+
+  // Pro subscription state
+  const [isPro, setIsPro] = useState(false);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
 
   const subtotal = useMemo(
     () =>
@@ -135,6 +138,8 @@ export default function Dashboard() {
   );
 
   async function loadDocs() {
+    setSubscriptionLoading(true);
+
     try {
       const {
         data: { user },
@@ -143,13 +148,39 @@ export default function Dashboard() {
 
       if (authError || !user) {
         setMessage(
-          authError?.message ||
-            "Login session nahi mili. Dobara login karein."
+          authError?.message || "Login session nahi mili. Dobara login karein."
         );
         router.replace("/login");
         return;
       }
 
+      // Load user's subscription
+      const { data: subscription, error: subscriptionError } =
+        await supabase
+          .from("subscriptions")
+          .select("plan,status,current_period_end")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+      if (subscriptionError) {
+        console.error("Subscription load error:", subscriptionError.message);
+        setIsPro(false);
+        setMessage(
+          "Subscription status load nahi hua. Supabase RLS policy check karein."
+        );
+      } else {
+        const periodValid =
+          !subscription?.current_period_end ||
+          new Date(subscription.current_period_end).getTime() > Date.now();
+
+        setIsPro(
+          subscription?.plan === "pro" &&
+          subscription?.status === "active" &&
+          periodValid
+        );
+      }
+
+      // Load invoices
       const { data, error } = await supabase
         .from("documents")
         .select("*")
@@ -165,8 +196,10 @@ export default function Dashboard() {
       setMessage(
         error instanceof Error
           ? error.message
-          : "Documents load nahi hue. Dobara try karein."
+          : "Data load nahi hua. Dobara try karein."
       );
+    } finally {
+      setSubscriptionLoading(false);
     }
   }
 
@@ -217,9 +250,7 @@ export default function Dashboard() {
           script.async = true;
           script.onload = () => resolve();
           script.onerror = () =>
-            reject(
-              new Error("Razorpay load nahi hua. Internet check karein.")
-            );
+            reject(new Error("Razorpay load nahi hua. Internet check karein."));
 
           document.body.appendChild(script);
         });
@@ -245,7 +276,7 @@ export default function Dashboard() {
       }
 
       if (!razorpayWindow.Razorpay) {
-        throw new Error("Razorpay checkout load nahi hua. Dobara try karein.");
+        throw new Error("Razorpay checkout load nahi hua.");
       }
 
       const checkout = new razorpayWindow.Razorpay({
@@ -273,22 +304,26 @@ export default function Dashboard() {
               }
             );
 
-            const verified = await verifyResponse
-              .json()
-              .catch(() => ({}));
+            const verified = await verifyResponse.json().catch(() => ({}));
 
             if (!verifyResponse.ok) {
               setMessage(
                 verified.error ||
-                  "Payment verification nahi ho payi. Payment status check karein."
+                  "Payment verify nahi hua. Payment status check karein."
               );
               return;
             }
 
-            setMessage(
-              "Payment verification successful. Page refresh ho raha hai."
-            );
-            window.location.reload();
+            if (verified.status !== "active") {
+              setMessage(
+                "Payment details verify hui hain, lekin subscription abhi active nahi hai. Activation confirm hone ka wait karein."
+              );
+              return;
+            }
+
+            setIsPro(true);
+            setMessage("Congratulations! InvoiceAI Pro activate ho gaya.");
+            await loadDocs();
           } catch {
             setMessage(
               "Verification server se connect nahi ho payi. Payment status check karein."
@@ -340,11 +375,16 @@ export default function Dashboard() {
   async function save() {
     setMessage("");
 
+    if (subscriptionLoading) {
+      setMessage("Subscription status load ho raha hai. Thoda wait karein.");
+      return;
+    }
+
     const currentMonthCount = docs.filter((doc) =>
       isCreatedThisMonth(doc.created_at, getMonthStart())
     ).length;
 
-    if (currentMonthCount >= 10) {
+    if (!isPro && currentMonthCount >= 10) {
       setView("Pricing");
       setMessage("Free plan ki 10 invoices/month limit poori ho gayi.");
       return;
@@ -369,9 +409,7 @@ export default function Dashboard() {
       } = await supabase.auth.getUser();
 
       if (authError || !user) {
-        setMessage(
-          authError?.message || "Dobara login karein."
-        );
+        setMessage("Dobara login karein.");
         router.push("/login");
         return;
       }
@@ -409,12 +447,8 @@ export default function Dashboard() {
 
       setMessage(`${number} save ho gaya!`);
       setView("Invoices");
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Document save nahi ho paya. Dobara try karein."
-      );
+    } catch {
+      setMessage("Document save nahi ho paya. Dobara try karein.");
     } finally {
       setBusy(false);
     }
@@ -471,13 +505,12 @@ export default function Dashboard() {
         item.id === doc.id ? { ...item, status } : item
       )
     );
+
     setMessage(`${doc.number} status update ho gaya.`);
   }
 
   async function deleteDoc(doc: Doc) {
-    if (!window.confirm(`${doc.number} delete karna hai?`)) {
-      return;
-    }
+    if (!window.confirm(`${doc.number} delete karna hai?`)) return;
 
     const { error } = await supabase
       .from("documents")
@@ -489,9 +522,7 @@ export default function Dashboard() {
       return;
     }
 
-    setDocs((current) =>
-      current.filter((item) => item.id !== doc.id)
-    );
+    setDocs((current) => current.filter((item) => item.id !== doc.id));
     setMessage(`${doc.number} delete ho gaya.`);
   }
 
@@ -525,9 +556,14 @@ export default function Dashboard() {
           Invoice<span>AI</span>
         </b>
 
-        <button className="linkbtn" onClick={logout}>
-          Log out
-        </button>
+        <div>
+          <span className="plan-label">
+            {subscriptionLoading ? "Checking plan..." : isPro ? "PRO PLAN" : "FREE PLAN"}
+          </span>
+          <button className="linkbtn" onClick={logout}>
+            Log out
+          </button>
+        </div>
       </header>
 
       <div className="dashgrid">
@@ -566,15 +602,20 @@ export default function Dashboard() {
 
           <hr />
 
-          <small>FREE PLAN</small>
-          <p>{usedThisMonth}/10 invoices this month</p>
+          <small>{isPro ? "PRO PLAN" : "FREE PLAN"}</small>
+          <p>
+            {subscriptionLoading
+              ? "Checking subscription..."
+              : isPro
+                ? "Pro subscription active"
+                : `${usedThisMonth}/10 invoices this month`}
+          </p>
 
-          <button
-            className="lightbtn"
-            onClick={() => setView("Pricing")}
-          >
-            View plans
-          </button>
+          {!isPro && (
+            <button className="lightbtn" onClick={() => setView("Pricing")}>
+              View plans
+            </button>
+          )}
         </aside>
 
         <section>
@@ -621,6 +662,10 @@ export default function Dashboard() {
                   </p>
                 </div>
 
+                <p>
+                  Current plan: <b>{isPro ? "Pro" : "Free"}</b>
+                </p>
+
                 <button
                   className="btn"
                   onClick={() => setView("Invoices")}
@@ -641,11 +686,7 @@ export default function Dashboard() {
                   </p>
                 </div>
 
-                <button
-                  className="btn"
-                  onClick={save}
-                  disabled={busy}
-                >
+                <button className="btn" onClick={save} disabled={busy}>
                   {busy ? "Saving…" : `Save ${type}`}
                 </button>
               </div>
@@ -863,10 +904,7 @@ export default function Dashboard() {
                           <td>{item.qty}</td>
                           <td>${Number(item.price).toFixed(2)}</td>
                           <td>
-                            $
-                            {(
-                              Number(item.qty) * Number(item.price)
-                            ).toFixed(2)}
+                            ${(Number(item.qty) * Number(item.price)).toFixed(2)}
                           </td>
                         </tr>
                       ))}
@@ -877,11 +915,9 @@ export default function Dashboard() {
                     <p>
                       Subtotal <b>${subtotal.toFixed(2)}</b>
                     </p>
-
                     <p>
                       Discount <b>-${safeDiscount.toFixed(2)}</b>
                     </p>
-
                     <p>
                       Tax{" "}
                       <b>
@@ -892,7 +928,6 @@ export default function Dashboard() {
                         ).toFixed(2)}
                       </b>
                     </p>
-
                     <h2>
                       Total <b>${total.toFixed(2)}</b>
                     </h2>
@@ -924,9 +959,7 @@ export default function Dashboard() {
 
               <div className="panel">
                 {docs.length === 0 ? (
-                  <p>
-                    No saved documents yet. Create your first invoice.
-                  </p>
+                  <p>No saved documents yet. Create your first invoice.</p>
                 ) : (
                   <div className="tablewrap">
                     <table>
@@ -982,13 +1015,7 @@ export default function Dashboard() {
                                   setItems(
                                     doc.items?.length
                                       ? doc.items
-                                      : [
-                                          {
-                                            description: "",
-                                            qty: 1,
-                                            price: 0,
-                                          },
-                                        ]
+                                      : [{ description: "", qty: 1, price: 0 }]
                                   );
                                   setTax(Number(doc.tax) || 0);
                                   setDiscount(Number(doc.discount) || 0);
@@ -1043,9 +1070,7 @@ export default function Dashboard() {
                 <div className="panel pricing-card">
                   <p className="muted">START HERE</p>
                   <h2>Free</h2>
-                  <h1>
-                    ₹0 <small>/ month</small>
-                  </h1>
+                  <h1>₹0 <small>/ month</small></h1>
                   <p>For small businesses getting started.</p>
 
                   <ul>
@@ -1057,32 +1082,40 @@ export default function Dashboard() {
                   </ul>
 
                   <button className="lightbtn" disabled>
-                    Current plan
+                    {isPro ? "Available plan" : "Current plan"}
                   </button>
                 </div>
 
                 <div className="panel pricing-card featured">
                   <p className="muted">FOR GROWING BUSINESSES</p>
                   <h2>Pro</h2>
-                  <h1>
-                    ₹199 <small>/ month</small>
-                  </h1>
+                  <h1>₹199 <small>/ month</small></h1>
                   <p>More room for your business.</p>
 
                   <ul>
-                    <li>Higher invoice allowance</li>
+                    <li>Unlimited invoices in this app</li>
                     <li>All Free features</li>
                     <li>Business branding options</li>
                     <li>Priority feature updates</li>
                   </ul>
 
-                  <button className="btn" onClick={upgradeToPro}>
-                    Upgrade to Pro
-                  </button>
+                  {isPro ? (
+                    <button className="lightbtn" disabled>
+                      Pro Active
+                    </button>
+                  ) : (
+                    <button
+                      className="btn"
+                      onClick={upgradeToPro}
+                      disabled={subscriptionLoading}
+                    >
+                      Upgrade to Pro
+                    </button>
+                  )}
 
                   <p className="muted pricing-note">
-                    Secure checkout powered by Razorpay. Payment status
-                    is verified by the server.
+                    Secure checkout powered by Razorpay. Payment status is
+                    verified by the server.
                   </p>
                 </div>
               </div>
@@ -1095,8 +1128,7 @@ export default function Dashboard() {
                 <div>
                   <h1>Customers</h1>
                   <p className="muted">
-                    Customers are collected from your saved invoices and
-                    quotes.
+                    Customers are collected from your saved invoices and quotes.
                   </p>
                 </div>
 
@@ -1111,8 +1143,8 @@ export default function Dashboard() {
               <div className="panel">
                 {customers.length === 0 ? (
                   <p>
-                    No customers yet. Save an invoice with a customer
-                    name to see them here.
+                    No customers yet. Save an invoice with a customer name to
+                    see them here.
                   </p>
                 ) : (
                   <div className="tablewrap">

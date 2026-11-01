@@ -11,15 +11,25 @@ export async function POST(req: Request) {
     const keyId = process.env.RAZORPAY_KEY_ID?.trim();
     const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim();
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+
     const anonKey =
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ||
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
     if (!keyId || !keySecret || !supabaseUrl || !anonKey || !serviceKey) {
       return NextResponse.json(
         { error: "Server configuration missing hai." },
         { status: 500 }
+      );
+    }
+
+    // Live keys are mandatory for this production endpoint.
+    if (!keyId.startsWith("rzp_live_")) {
+      return NextResponse.json(
+        { error: "Live Razorpay API keys required hain." },
+        { status: 403 }
       );
     }
 
@@ -33,7 +43,6 @@ export async function POST(req: Request) {
     }
 
     const token = authHeader.slice(7).trim();
-
     const authClient = createClient(supabaseUrl, anonKey);
 
     const {
@@ -65,6 +74,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // Verify Razorpay checkout signature.
     const expectedSignature = crypto
       .createHmac("sha256", keySecret)
       .update(`${paymentId}|${subscriptionId}`)
@@ -88,6 +98,7 @@ export async function POST(req: Request) {
       key_secret: keySecret,
     });
 
+    // Fetch subscription using Live Razorpay credentials.
     const subscription =
       await razorpay.subscriptions.fetch(subscriptionId);
 
@@ -98,14 +109,14 @@ export async function POST(req: Request) {
       );
     }
 
-    const status = subscription.status;
-
-    if (!["active", "authenticated"].includes(status)) {
+    // Only genuinely active subscriptions can activate Pro.
+    if (subscription.status !== "active") {
       return NextResponse.json(
         {
           verified: true,
-          status,
-          message: `Payment verified. Subscription status: ${status}. Activation ka wait karein.`,
+          status: subscription.status,
+          message:
+            "Payment details verified. Subscription active hone ka wait karein.",
         },
         { status: 200 }
       );
@@ -128,7 +139,7 @@ export async function POST(req: Request) {
         {
           user_id: user.id,
           plan: "pro",
-          status: status === "active" ? "active" : "pending",
+          status: "active",
           razorpay_subscription_id: subscriptionId,
           current_period_end: periodEnd,
         },
@@ -157,8 +168,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       verified: true,
       plan: "pro",
-      status: status === "active" ? "active" : "pending",
-      message: "Payment verified and subscription saved successfully.",
+      status: "active",
+      message: "Live subscription activated successfully.",
     });
   } catch (error: unknown) {
     const err = error as {

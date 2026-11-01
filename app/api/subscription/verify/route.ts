@@ -8,13 +8,13 @@ export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
-    const keyId = process.env.RAZORPAY_KEY_ID;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const keyId = process.env.RAZORPAY_KEY_ID?.trim();
+    const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim();
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
     const anonKey =
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
     if (!keyId || !keySecret || !supabaseUrl || !anonKey || !serviceKey) {
       return NextResponse.json(
@@ -23,7 +23,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Authenticate logged-in user
     const authHeader = req.headers.get("authorization");
 
     if (!authHeader?.startsWith("Bearer ")) {
@@ -49,7 +48,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Read payment details
     const body = await req.json();
 
     const paymentId = body.razorpay_payment_id;
@@ -67,7 +65,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Verify Razorpay signature
     const expectedSignature = crypto
       .createHmac("sha256", keySecret)
       .update(`${paymentId}|${subscriptionId}`)
@@ -86,7 +83,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Fetch subscription directly from Razorpay
     const razorpay = new Razorpay({
       key_id: keyId,
       key_secret: keySecret,
@@ -95,7 +91,6 @@ export async function POST(req: Request) {
     const subscription =
       await razorpay.subscriptions.fetch(subscriptionId);
 
-    // Verify subscription belongs to this user
     if (subscription.notes?.supabase_user_id !== user.id) {
       return NextResponse.json(
         { error: "Subscription user mismatch." },
@@ -108,13 +103,14 @@ export async function POST(req: Request) {
     if (!["active", "authenticated"].includes(status)) {
       return NextResponse.json(
         {
-          error: `Subscription abhi ${status} status mein hai. Activation confirm hone ka wait karein.`,
+          verified: true,
+          status,
+          message: `Payment verified. Subscription status: ${status}. Activation ka wait karein.`,
         },
-        { status: 409 }
+        { status: 200 }
       );
     }
 
-    // Save subscription using server-only service role key
     const admin = createClient(supabaseUrl, serviceKey, {
       auth: {
         autoRefreshToken: false,
@@ -140,10 +136,20 @@ export async function POST(req: Request) {
       );
 
     if (dbError) {
-      console.error("Subscription database error:", dbError.message);
+      console.error("Subscription database error:", {
+        message: dbError.message,
+        code: dbError.code,
+        details: dbError.details,
+        hint: dbError.hint,
+      });
 
       return NextResponse.json(
-        { error: "Payment verified, lekin database update nahi hua." },
+        {
+          error: "Database update failed.",
+          databaseError: dbError.message,
+          databaseCode: dbError.code,
+          databaseDetails: dbError.details,
+        },
         { status: 500 }
       );
     }
@@ -152,14 +158,23 @@ export async function POST(req: Request) {
       verified: true,
       plan: "pro",
       status: status === "active" ? "active" : "pending",
-      message: "Payment signature verified and subscription saved.",
+      message: "Payment verified and subscription saved successfully.",
     });
+  } catch (error: unknown) {
+    const err = error as {
+      message?: string;
+      error?: { description?: string };
+    };
 
-  } catch (error) {
-    console.error("Payment verification error:", error);
+    console.error("Payment verification error:", err);
 
     return NextResponse.json(
-      { error: "Payment verification failed. Server logs check karein." },
+      {
+        error:
+          err.error?.description ||
+          err.message ||
+          "Payment verification failed.",
+      },
       { status: 500 }
     );
   }

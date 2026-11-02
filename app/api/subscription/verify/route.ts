@@ -1,191 +1,179 @@
-
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import Razorpay from "razorpay";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const keyId = process.env.RAZORPAY_KEY_ID?.trim();
-    const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim();
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-
-    const anonKey =
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
-
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-
-    if (!keyId || !keySecret || !supabaseUrl || !anonKey || !serviceKey) {
-      return NextResponse.json(
-        { error: "Server configuration missing hai." },
-        { status: 500 }
-      );
-    }
-
-    // Live keys are mandatory for this production endpoint.
-    if (!keyId.startsWith("rzp_live_")) {
-      return NextResponse.json(
-        { error: "Live Razorpay API keys required hain." },
-        { status: 403 }
-      );
-    }
-
     const authHeader = req.headers.get("authorization");
+    const token = authHeader?.replace("Bearer ", "");
 
-    if (!authHeader?.startsWith("Bearer ")) {
+    if (!token) {
       return NextResponse.json(
-        { error: "Login required hai." },
+        { error: "Unauthorized" },
         { status: 401 }
       );
     }
 
-    const token = authHeader.slice(7).trim();
-    const authClient = createClient(supabaseUrl, anonKey);
+    const razorpayKeyId = process.env.RAZORPAY_KEY_ID;
+    const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (
+      !razorpayKeyId ||
+      !razorpayKeySecret ||
+      !supabaseUrl ||
+      !supabaseAnonKey ||
+      !serviceRoleKey
+    ) {
+      return NextResponse.json(
+        { error: "Server environment variables missing" },
+        { status: 500 }
+      );
+    }
+
+    if (!razorpayKeyId.startsWith("rzp_live_")) {
+      return NextResponse.json(
+        { error: "Live Razorpay keys are required" },
+        { status: 400 }
+      );
+    }
+
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey);
 
     const {
       data: { user },
-      error: authError,
-    } = await authClient.auth.getUser(token);
+      error: userError,
+    } = await supabaseAuth.auth.getUser(token);
 
-    if (authError || !user) {
+    if (userError || !user) {
       return NextResponse.json(
-        { error: "Login session invalid hai." },
+        { error: "Invalid user session" },
         { status: 401 }
       );
     }
 
     const body = await req.json();
 
-    const paymentId = body.razorpay_payment_id;
-    const subscriptionId = body.razorpay_subscription_id;
-    const signature = body.razorpay_signature;
+    const {
+      razorpay_payment_id,
+      razorpay_subscription_id,
+      razorpay_signature,
+    } = body;
 
     if (
-      typeof paymentId !== "string" ||
-      typeof subscriptionId !== "string" ||
-      typeof signature !== "string"
+      !razorpay_payment_id ||
+      !razorpay_subscription_id ||
+      !razorpay_signature
     ) {
       return NextResponse.json(
-        { error: "Payment details missing hain." },
+        { error: "Payment details missing" },
         { status: 400 }
       );
     }
 
-    // Verify Razorpay checkout signature.
-    const expectedSignature = crypto
-      .createHmac("sha256", keySecret)
-      .update(`${paymentId}|${subscriptionId}`)
+    const generatedSignature = crypto
+      .createHmac("sha256", razorpayKeySecret)
+      .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
       .digest("hex");
 
-    const expected = Buffer.from(expectedSignature, "hex");
-    const received = Buffer.from(signature, "hex");
+    const signatureBuffer = Buffer.from(generatedSignature);
+    const receivedBuffer = Buffer.from(razorpay_signature);
 
     if (
-      expected.length !== received.length ||
-      !crypto.timingSafeEqual(expected, received)
+      signatureBuffer.length !== receivedBuffer.length ||
+      !crypto.timingSafeEqual(signatureBuffer, receivedBuffer)
     ) {
       return NextResponse.json(
-        { error: "Payment signature invalid hai." },
+        { error: "Invalid payment signature" },
         { status: 400 }
       );
     }
 
-    const razorpay = new Razorpay({
-      key_id: keyId,
-      key_secret: keySecret,
-    });
+    const razorpayResponse = await fetch(
+      `https://api.razorpay.com/v1/subscriptions/${razorpay_subscription_id}`,
+      {
+        headers: {
+          Authorization:
+            "Basic " +
+            Buffer.from(`${razorpayKeyId}:${razorpayKeySecret}`).toString(
+              "base64"
+            ),
+        },
+        cache: "no-store",
+      }
+    );
 
-    // Fetch subscription using Live Razorpay credentials.
-    const subscription =
-      await razorpay.subscriptions.fetch(subscriptionId);
+    const subscription = await razorpayResponse.json();
 
-    if (subscription.notes?.supabase_user_id !== user.id) {
+    if (!razorpayResponse.ok) {
+      console.error("Razorpay fetch error:", subscription);
+
       return NextResponse.json(
-        { error: "Subscription user mismatch." },
+        { error: "Could not verify Razorpay subscription" },
+        { status: 400 }
+      );
+    }
+
+    if (
+      subscription.id !== razorpay_subscription_id ||
+      subscription.notes?.supabase_user_id !== user.id
+    ) {
+      return NextResponse.json(
+        { error: "Subscription does not belong to this user" },
         { status: 403 }
       );
     }
 
-    // Only genuinely active subscriptions can activate Pro.
     if (subscription.status !== "active") {
-      return NextResponse.json(
-        {
-          verified: true,
-          status: subscription.status,
-          message:
-            "Payment details verified. Subscription active hone ka wait karein.",
-        },
-        { status: 200 }
-      );
+      return NextResponse.json({
+        success: true,
+        status: subscription.status,
+        message: "Payment received. Pro will activate once subscription becomes active.",
+      });
     }
 
-    const admin = createClient(supabaseUrl, serviceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    });
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
-    const periodEnd = subscription.current_end
+    const currentPeriodEnd = subscription.current_end
       ? new Date(subscription.current_end * 1000).toISOString()
       : null;
 
-    const { error: dbError } = await admin
+    const { error: dbError } = await supabaseAdmin
       .from("subscriptions")
       .upsert(
         {
           user_id: user.id,
           plan: "pro",
           status: "active",
-          razorpay_subscription_id: subscriptionId,
-          current_period_end: periodEnd,
+          razorpay_subscription_id: subscription.id,
+          current_period_end: currentPeriodEnd,
+          razorpay_mode: "live",
         },
         { onConflict: "user_id" }
       );
 
     if (dbError) {
-      console.error("Subscription database error:", {
-        message: dbError.message,
-        code: dbError.code,
-        details: dbError.details,
-        hint: dbError.hint,
-      });
+      console.error("Subscription database error:", dbError);
 
       return NextResponse.json(
-        {
-          error: "Database update failed.",
-          databaseError: dbError.message,
-          databaseCode: dbError.code,
-          databaseDetails: dbError.details,
-        },
+        { error: "Could not save subscription" },
         { status: 500 }
       );
     }
 
     return NextResponse.json({
-      verified: true,
-      plan: "pro",
+      success: true,
       status: "active",
-      message: "Live subscription activated successfully.",
     });
-  } catch (error: unknown) {
-    const err = error as {
-      message?: string;
-      error?: { description?: string };
-    };
-
-    console.error("Payment verification error:", err);
+  } catch (error) {
+    console.error("Verify API error:", error);
 
     return NextResponse.json(
-      {
-        error:
-          err.error?.description ||
-          err.message ||
-          "Payment verification failed.",
-      },
+      { error: "Internal server error" },
       { status: 500 }
     );
   }

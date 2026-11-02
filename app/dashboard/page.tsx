@@ -154,7 +154,6 @@ export default function Dashboard() {
         return;
       }
 
-      // Live Mode subscription check
       const { data: subscription, error: subscriptionError } =
         await supabase
           .from("subscriptions")
@@ -181,7 +180,6 @@ export default function Dashboard() {
         );
       }
 
-      // Load invoices
       const { data, error } = await supabase
         .from("documents")
         .select("*")
@@ -529,8 +527,161 @@ export default function Dashboard() {
     router.push("/login");
   }
 
-  function downloadPDF() {
-    window.print();
+  function downloadPDF(doc?: Doc) {
+    const invoice = doc || {
+      number: "DRAFT",
+      type,
+      customer,
+      email,
+      items,
+      tax,
+      discount: safeDiscount,
+      notes,
+      total,
+    };
+
+    const subtotalAmount = invoice.items.reduce(
+      (sum, item) =>
+        sum + Number(item.qty || 0) * Number(item.price || 0),
+      0
+    );
+
+    const discountAmount = Number(invoice.discount || 0);
+    const taxAmount =
+      Math.max(0, subtotalAmount - discountAmount) *
+      (Number(invoice.tax || 0) / 100);
+
+    const escapeHtml = (value: unknown) =>
+      String(value ?? "").replace(/[&<>"']/g, (char) => {
+        const entities: Record<string, string> = {
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#039;",
+        };
+        return entities[char];
+      });
+
+    const printWindow = window.open("", "_blank");
+
+    if (!printWindow) {
+      setMessage("Pop-up blocked hai. Browser mein pop-ups allow karein.");
+      return;
+    }
+
+    const rows = invoice.items
+      .map(
+        (item) => `
+          <tr>
+            <td>${escapeHtml(item.description)}</td>
+            <td>${Number(item.qty)}</td>
+            <td>${Number(item.price).toFixed(2)}</td>
+            <td>${(
+              Number(item.qty) * Number(item.price)
+            ).toFixed(2)}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${escapeHtml(invoice.number)} - InvoiceAI</title>
+          <meta charset="UTF-8" />
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              padding: 40px;
+              color: #222;
+            }
+            .header {
+              display: flex;
+              justify-content: space-between;
+              border-bottom: 2px solid #6C3BEE;
+              padding-bottom: 20px;
+            }
+            h1 { color: #6C3BEE; }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 30px;
+            }
+            th, td {
+              padding: 12px;
+              border-bottom: 1px solid #ddd;
+              text-align: left;
+            }
+            .totals {
+              margin: 30px 0 0 auto;
+              width: 260px;
+            }
+            .totals p {
+              display: flex;
+              justify-content: space-between;
+            }
+            .grand {
+              font-size: 22px;
+              border-top: 2px solid #6C3BEE;
+              padding-top: 12px;
+            }
+            .notes { margin-top: 40px; }
+            @media print {
+              body { padding: 10px; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <h1>InvoiceAI</h1>
+              <p>Your Business</p>
+            </div>
+            <div>
+              <h2>${escapeHtml(invoice.type)}</h2>
+              <p>${escapeHtml(invoice.number)}</p>
+            </div>
+          </div>
+
+          <h3>Bill To</h3>
+          <p>${escapeHtml(invoice.customer)}</p>
+          <p>${escapeHtml(invoice.email)}</p>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Qty</th>
+                <th>Price</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+
+          <div class="totals">
+            <p><span>Subtotal</span><b>${subtotalAmount.toFixed(2)}</b></p>
+            <p><span>Discount</span><b>-${discountAmount.toFixed(2)}</b></p>
+            <p><span>Tax</span><b>${taxAmount.toFixed(2)}</b></p>
+            <p class="grand"><span>Total</span><b>${Number(invoice.total).toFixed(2)}</b></p>
+          </div>
+
+          <div class="notes">
+            <h3>Notes</h3>
+            <p>${escapeHtml(invoice.notes)}</p>
+          </div>
+        </body>
+      </html>
+    `);
+
+    printWindow.document.close();
+    printWindow.focus();
+
+    printWindow.onload = () => {
+      printWindow.print();
+    };
   }
 
   function sendWhatsApp(doc?: Doc) {
@@ -538,12 +689,22 @@ export default function Dashboard() {
     const amount = Number(doc?.total ?? total).toFixed(2);
     const number = doc?.number ? ` (${doc.number})` : "";
 
-    const text = `Hello ${name}, friendly reminder that invoice${number} for ${amount} is awaiting payment. Please let me know if you have any questions. Thank you!`;
+    const text = `Hello ${name}, friendly reminder that invoice${number} for ${amount} is awaiting payment. Please find the invoice PDF attached. Please let me know if you have any questions. Thank you!`;
 
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+
+    // Open WhatsApp Web from the user's click.
     window.open(
-      `https://wa.me/?text=${encodeURIComponent(text)}`,
+      whatsappUrl,
       "_blank",
       "noopener,noreferrer"
+    );
+
+    // Open the corresponding invoice PDF print window.
+    downloadPDF(doc);
+
+    setMessage(
+      "PDF window khul gaya hai. Save as PDF karein, phir WhatsApp mein attach karke send karein."
     );
   }
 
@@ -869,7 +1030,7 @@ export default function Dashboard() {
                     <button
                       type="button"
                       className="lightbtn"
-                      onClick={downloadPDF}
+                      onClick={() => downloadPDF()}
                     >
                       Print / Save PDF
                     </button>

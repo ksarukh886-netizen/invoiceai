@@ -28,12 +28,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Verify webhook signature using the original request body.
     const body = await req.text();
     const signature = req.headers.get("x-razorpay-signature");
 
-    if (!signature) {
+    if (!signature || !/^[a-fA-F0-9]{64}$/.test(signature)) {
       return NextResponse.json(
-        { error: "Missing webhook signature." },
+        { error: "Missing or invalid webhook signature." },
         { status: 400 }
       );
     }
@@ -63,6 +64,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ received: true });
     }
 
+    const supportedEvents = [
+      "subscription.authenticated",
+      "subscription.activated",
+      "subscription.charged",
+      "subscription.resumed",
+      "subscription.paused",
+      "subscription.pending",
+      "subscription.halted",
+      "subscription.cancelled",
+      "subscription.completed",
+    ];
+
+    if (!supportedEvents.includes(event.event)) {
+      return NextResponse.json({ received: true });
+    }
+
     const userId = entity.notes?.supabase_user_id;
 
     if (!userId) {
@@ -72,28 +89,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const activeEvents = [
-      "subscription.activated",
-      "subscription.charged",
-      "subscription.resumed",
-    ];
-
-    const inactiveEvents = [
-      "subscription.cancelled",
-      "subscription.halted",
-      "subscription.completed",
-      "subscription.paused",
-      "subscription.pending",
-    ];
-
-    if (
-      !activeEvents.includes(event.event) &&
-      !inactiveEvents.includes(event.event)
-    ) {
-      return NextResponse.json({ received: true });
-    }
-
-    // Verify this subscription against the Live Razorpay account.
+    // Verify subscription directly against the Live Razorpay account.
     const razorpay = new Razorpay({
       key_id: keyId,
       key_secret: keySecret,
@@ -111,10 +107,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const isActive =
-      activeEvents.includes(event.event) &&
-      liveSubscription.status === "active";
-
     const admin = createClient(supabaseUrl, serviceKey, {
       auth: {
         autoRefreshToken: false,
@@ -122,7 +114,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Do not let an old subscription event overwrite a newer subscription.
+    // Prevent an old subscription from overwriting a newer one.
     const { data: existing, error: readError } = await admin
       .from("subscriptions")
       .select("razorpay_subscription_id")
@@ -152,15 +144,20 @@ export async function POST(req: NextRequest) {
       ? new Date(liveSubscription.current_end * 1000).toISOString()
       : null;
 
+    // Save the actual Razorpay status.
+    // Dashboard should grant Pro only when status is "active".
+    const actualStatus = liveSubscription.status;
+
     const { error: dbError } = await admin
       .from("subscriptions")
       .upsert(
         {
           user_id: userId,
           plan: "pro",
-          status: isActive ? "active" : "pending",
+          status: actualStatus,
           razorpay_subscription_id: entity.id,
           current_period_end: periodEnd,
+          razorpay_mode: "live",
         },
         { onConflict: "user_id" }
       );
@@ -173,7 +170,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ received: true });
+    return NextResponse.json({
+      received: true,
+      status: actualStatus,
+    });
   } catch (error) {
     console.error("Razorpay webhook error:", error);
 

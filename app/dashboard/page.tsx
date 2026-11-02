@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -549,9 +550,18 @@ export default function Dashboard() {
   return (
     <main className="dash">
       <header>
-        <b className="brand">
-          Invoice<span>AI</span>
-        </b>
+        <div className="brand">
+          <img
+            src="/invoiceai-logo.png"
+            alt="InvoiceAI Logo"
+            style={{
+              width: "160px",
+              height: "auto",
+              objectFit: "contain",
+              display: "block",
+            }}
+          />
+        </div>
 
         <div>
           <span className="plan-label">

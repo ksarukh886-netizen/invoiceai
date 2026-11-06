@@ -1,6 +1,6 @@
 
 import "./globals.css";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 
 export const metadata: Metadata = {
   title: "InvoiceAI — Smart Invoicing",
@@ -9,6 +9,12 @@ export const metadata: Metadata = {
     icon: "/invoiceai-logo.png",
     apple: "/invoiceai-logo.png",
   },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({

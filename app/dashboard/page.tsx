@@ -1,9 +1,9 @@
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "../../lib/supabase-browser";
 import { useRouter } from "next/navigation";
+import { useLocale } from "../../components/LocaleProvider";
 
 type Item = {
   description: string;
@@ -23,6 +23,7 @@ type Doc = {
   status: string;
   notes: string;
   total: number;
+  currency?: string;
   created_at: string;
 };
 
@@ -37,6 +38,33 @@ const toSafeNumber = (value: number | string | undefined) => {
   const n = Number(value ?? 0);
   return Number.isFinite(n) ? Math.max(0, n) : 0;
 };
+
+const localeForLanguage: Record<string, string> = {
+  en: "en-US",
+  hi: "hi-IN",
+  es: "es-ES",
+  fr: "fr-FR",
+  de: "de-DE",
+  ar: "ar-AE",
+};
+
+function formatMoney(
+  amount: number,
+  currencyCode = "USD",
+  language = "en"
+) {
+  try {
+    return new Intl.NumberFormat(
+      localeForLanguage[language] || "en-US",
+      {
+        style: "currency",
+        currency: currencyCode,
+      }
+    ).format(Number(amount) || 0);
+  } catch {
+    return `${currencyCode} ${(Number(amount) || 0).toFixed(2)}`;
+  }
+}
 
 const getMonthStart = () => {
   const d = new Date();
@@ -71,6 +99,8 @@ const buildDocumentNumber = (type: string, docs: Doc[]) => {
 export default function Dashboard() {
   const [supabase] = useState(() => createClient());
   const router = useRouter();
+
+  const { currency, language } = useLocale();
 
   const [docs, setDocs] = useState<Doc[]>([]);
   const [customer, setCustomer] = useState("");
@@ -423,6 +453,7 @@ export default function Dashboard() {
         discount: safeDiscount,
         notes,
         total,
+        currency,
         status: "Pending",
       };
 
@@ -538,7 +569,10 @@ export default function Dashboard() {
       discount: safeDiscount,
       notes,
       total,
+      currency,
     };
+
+    const invoiceCurrency = invoice.currency || "USD";
 
     const subtotalAmount = invoice.items.reduce(
       (sum, item) =>
@@ -576,10 +610,8 @@ export default function Dashboard() {
           <tr>
             <td>${escapeHtml(item.description)}</td>
             <td>${Number(item.qty)}</td>
-            <td>${Number(item.price).toFixed(2)}</td>
-            <td>${(
-              Number(item.qty) * Number(item.price)
-            ).toFixed(2)}</td>
+            <td>${escapeHtml(formatMoney(Number(item.price), invoiceCurrency, language))}</td>
+            <td>${escapeHtml(formatMoney(Number(item.qty) * Number(item.price), invoiceCurrency, language))}</td>
           </tr>
         `
       )
@@ -662,10 +694,10 @@ export default function Dashboard() {
           </table>
 
           <div class="totals">
-            <p><span>Subtotal</span><b>${subtotalAmount.toFixed(2)}</b></p>
-            <p><span>Discount</span><b>-${discountAmount.toFixed(2)}</b></p>
-            <p><span>Tax</span><b>${taxAmount.toFixed(2)}</b></p>
-            <p class="grand"><span>Total</span><b>${Number(invoice.total).toFixed(2)}</b></p>
+            <p><span>Subtotal</span><b>${escapeHtml(formatMoney(subtotalAmount, invoiceCurrency, language))}</b></p>
+            <p><span>Discount</span><b>-${escapeHtml(formatMoney(discountAmount, invoiceCurrency, language))}</b></p>
+            <p><span>Tax</span><b>${escapeHtml(formatMoney(taxAmount, invoiceCurrency, language))}</b></p>
+            <p class="grand"><span>Total</span><b>${escapeHtml(formatMoney(Number(invoice.total), invoiceCurrency, language))}</b></p>
           </div>
 
           <div class="notes">
@@ -686,21 +718,23 @@ export default function Dashboard() {
 
   function sendWhatsApp(doc?: Doc) {
     const name = doc?.customer || customer || "there";
-    const amount = Number(doc?.total ?? total).toFixed(2);
+    const amount = formatMoney(
+      Number(doc?.total ?? total),
+      doc?.currency || currency,
+      language
+    );
     const number = doc?.number ? ` (${doc.number})` : "";
 
     const text = `Hello ${name}, friendly reminder that invoice${number} for ${amount} is awaiting payment. Please find the invoice PDF attached. Please let me know if you have any questions. Thank you!`;
 
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
 
-    // Open WhatsApp Web from the user's click.
     window.open(
       whatsappUrl,
       "_blank",
       "noopener,noreferrer"
     );
 
-    // Open the corresponding invoice PDF print window.
     downloadPDF(doc);
 
     setMessage(
@@ -855,6 +889,9 @@ export default function Dashboard() {
                   <p className="muted">
                     Enter details; preview updates automatically.
                   </p>
+                  <p className="muted">
+                    Invoice currency: <b>{currency}</b>
+                  </p>
                 </div>
 
                 <button className="btn" onClick={save} disabled={busy}>
@@ -972,7 +1009,7 @@ export default function Dashboard() {
                     </label>
 
                     <label>
-                      Discount
+                      Discount ({currency})
                       <input
                         type="number"
                         min="0"
@@ -1071,12 +1108,13 @@ export default function Dashboard() {
                         <tr key={index}>
                           <td>{item.description || "Item"}</td>
                           <td>{item.qty}</td>
-                          <td>${Number(item.price).toFixed(2)}</td>
+                          <td>{formatMoney(Number(item.price), currency, language)}</td>
                           <td>
-                            $
-                            {(
-                              Number(item.qty) * Number(item.price)
-                            ).toFixed(2)}
+                            {formatMoney(
+                              Number(item.qty) * Number(item.price),
+                              currency,
+                              language
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -1085,26 +1123,37 @@ export default function Dashboard() {
 
                   <div className="sum">
                     <p>
-                      Subtotal <b>${subtotal.toFixed(2)}</b>
+                      Subtotal{" "}
+                      <b>{formatMoney(subtotal, currency, language)}</b>
                     </p>
 
                     <p>
-                      Discount <b>-${safeDiscount.toFixed(2)}</b>
+                      Discount{" "}
+                      <b>
+                        -
+                        {formatMoney(
+                          safeDiscount,
+                          currency,
+                          language
+                        )}
+                      </b>
                     </p>
 
                     <p>
                       Tax{" "}
                       <b>
-                        $
-                        {(
+                        {formatMoney(
                           Math.max(0, subtotal - safeDiscount) *
-                          (Math.max(0, tax) / 100)
-                        ).toFixed(2)}
+                            (Math.max(0, tax) / 100),
+                          currency,
+                          language
+                        )}
                       </b>
                     </p>
 
                     <h2>
-                      Total <b>${total.toFixed(2)}</b>
+                      Total{" "}
+                      <b>{formatMoney(total, currency, language)}</b>
                     </h2>
                   </div>
 
@@ -1163,7 +1212,13 @@ export default function Dashboard() {
                               <small>{doc.email}</small>
                             </td>
 
-                            <td>${Number(doc.total).toFixed(2)}</td>
+                            <td>
+                              {formatMoney(
+                                Number(doc.total),
+                                doc.currency || "USD",
+                                language
+                              )}
+                            </td>
 
                             <td>
                               <select
@@ -1403,7 +1458,13 @@ export default function Dashboard() {
                         <tr key={doc.id}>
                           <td>{doc.number}</td>
                           <td>{doc.customer}</td>
-                          <td>${Number(doc.total).toFixed(2)}</td>
+                          <td>
+                            {formatMoney(
+                              Number(doc.total),
+                              doc.currency || "USD",
+                              language
+                            )}
+                          </td>
                           <td>{doc.status}</td>
                         </tr>
                       ))}

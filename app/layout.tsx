@@ -1,6 +1,7 @@
 
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
+import LocaleProvider from "../components/LocaleProvider";
 
 export const metadata: Metadata = {
   title: "InvoiceAI — Smart Invoicing",
@@ -24,7 +25,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <LocaleProvider>{children}</LocaleProvider>
+      </body>
     </html>
   );
 }
